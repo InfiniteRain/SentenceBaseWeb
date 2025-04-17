@@ -1,0 +1,21 @@
+{
+  "name": "sentence-base-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "~5.7.2",
+    "vite": "^6.3.0",
+    "vite-plugin-elm": "^3.1.0-2"
+  },
+  "dependencies": {
+    "@types/gapi": "^0.0.47",
+    "@types/google.accounts": "^0.0.15",
+    "ts-pattern": "^5.7.0"
+  }
+}
