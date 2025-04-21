@@ -1,8 +1,9 @@
-module Page.Mining exposing (..)
+port module Page.Mining exposing (..)
 
-import Gapi exposing (Action(..))
+import Api.Google as Google exposing (Action(..))
 import Html exposing (Html, br, button, div, li, span, text, ul)
 import Html.Events exposing (onClick)
+import Regex
 
 
 
@@ -11,9 +12,18 @@ import Html.Events exposing (onClick)
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { ids = [], clicks = 0 }
+    ( { sentenceWords = []
+      , selectedWord = Nothing
+      }
     , Cmd.none
     )
+
+
+
+-- PORTS
+
+
+port clipboardPort : (String -> msg) -> Sub msg
 
 
 
@@ -21,8 +31,8 @@ init _ =
 
 
 type alias Model =
-    { ids : List String
-    , clicks : Int
+    { sentenceWords : List String
+    , selectedWord : Maybe String
     }
 
 
@@ -31,32 +41,47 @@ type alias Model =
 
 
 type Msg
-    = SendRequest
-    | GotRequest (Result Gapi.Error (Maybe String))
+    = ClipboardUpdated String
+    | WordSelected String
 
 
-update : Msg -> Model -> ( Model, Cmd Msg, Gapi.Action Msg )
+update : Msg -> Model -> ( Model, Cmd Msg, Google.Action Msg )
 update msg model =
     case msg of
-        SendRequest ->
-            ( { model | clicks = model.clicks + 1 }
+        ClipboardUpdated str ->
+            ( { model
+                | sentenceWords =
+                    str
+                        |> String.trim
+                        |> Regex.split space
+                , selectedWord = Nothing
+              }
             , Cmd.none
-            , Gapi (Gapi.gapiGetAppFolderId GotRequest)
+            , None
             )
 
-        GotRequest result ->
-            case result of
-                Ok id ->
-                    ( { model | ids = model.ids ++ [ Maybe.withDefault "?" id ] }
-                    , Cmd.none
-                    , None
-                    )
+        WordSelected str ->
+            ( { model
+                | selectedWord = Just str
+              }
+            , Cmd.none
+            , None
+            )
 
-                Err _ ->
-                    ( model
-                    , Cmd.none
-                    , None
-                    )
+
+space : Regex.Regex
+space =
+    Regex.fromString "\\s+"
+        |> Maybe.withDefault Regex.never
+
+
+
+-- SUBSCRIPTIONS
+
+
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    clipboardPort ClipboardUpdated
 
 
 
@@ -65,16 +90,12 @@ update msg model =
 
 view : Model -> Html Msg
 view model =
-    div []
-        [ span [] [ text (String.fromInt model.clicks) ]
-        , br [] []
-        , button
-            [ onClick SendRequest ]
-            [ text "Initialize" ]
-        , ul
-            []
-            (List.map
-                (\id -> li [] [ text id ])
-                model.ids
-            )
-        ]
+    div
+        []
+        (List.map (\word -> button [ onClick (WordSelected (String.toLower word)) ] [ text word ]) model.sentenceWords
+            ++ [ br [] []
+               , span [] [ text (Maybe.withDefault "" model.selectedWord) ]
+               ]
+            ++ List.repeat 10 (br [] [])
+            ++ [ span [] [ text "Wij hebben een serieus probleem" ] ]
+        )

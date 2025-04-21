@@ -1,7 +1,7 @@
 port module Main exposing (..)
 
+import Api.Google as Google exposing (Action(..))
 import Browser
-import Gapi exposing (Action(..))
 import Html exposing (Html)
 import Http exposing (request)
 import Json.Decode as Decode exposing (Decoder)
@@ -34,7 +34,7 @@ messageSender msg =
 port messageReceiverPort : (Decode.Value -> msg) -> Sub msg
 
 
-messageReceiver : Sub GapiMsg
+messageReceiver : Sub GoogleMsg
 messageReceiver =
     messageReceiverPort (\value -> IncomingPortMsg (Decode.decodeValue portMsgDecoder value))
 
@@ -44,7 +44,7 @@ messageReceiver =
 
 
 type alias Model =
-    { gapiModel : GapiModel
+    { googleModel : GoogleModel
     , page : Page
     }
 
@@ -59,7 +59,7 @@ init _ =
         ( miningModel, miningCmd ) =
             Mining.init ()
     in
-    ( { gapiModel =
+    ( { googleModel =
             { state = Uninitialized
             , requestQueue = []
             , token = ""
@@ -72,18 +72,18 @@ init _ =
 
 
 
--- GAPI MODEL
+-- google MODEL
 
 
-type alias GapiModel =
-    { state : GapiState
-    , requestQueue : List (Gapi.GapiRequestConfig Msg)
+type alias GoogleModel =
+    { state : GoogleState
+    , requestQueue : List (Google.GoogleRequestConfig Msg)
     , token : String
     , appFolderId : String
     }
 
 
-type GapiState
+type GoogleState
     = Uninitialized
     | Initializing
     | Authenticating
@@ -96,18 +96,18 @@ type GapiState
 
 
 type Msg
-    = GotGapiMsg GapiMsg
+    = GotGoogleMsg GoogleMsg
     | GotMiningMsg Mining.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case ( msg, model.page ) of
-        ( GotGapiMsg subMsg, _ ) ->
-            gapiUpdate subMsg model.gapiModel
+        ( GotGoogleMsg subMsg, _ ) ->
+            googleUpdate subMsg model.googleModel
                 |> Triple.mapFirst
-                    (\updatedModel -> { model | gapiModel = updatedModel })
-                |> (\( updatedModel, gapiCmd, maybeOutMsg ) ->
+                    (\updatedModel -> { model | googleModel = updatedModel })
+                |> (\( updatedModel, googleCmd, maybeOutMsg ) ->
                         maybeOutMsg
                             |> Maybe.map
                                 (\outMsg ->
@@ -118,7 +118,7 @@ update msg model =
                                 (\updateCmd ->
                                     Cmd.batch
                                         [ updateCmd
-                                        , Cmd.map GotGapiMsg gapiCmd
+                                        , Cmd.map GotGoogleMsg googleCmd
                                         ]
                                 )
                    )
@@ -128,12 +128,12 @@ update msg model =
                 |> Triple.mapFirst
                     (\updatedSubModel -> { model | page = Mining updatedSubModel })
                 |> (\( updatedSubModel, cmd, action ) ->
-                        Gapi.mapAction GotMiningMsg action
-                            |> performGapiAction updatedSubModel
+                        Google.mapAction GotMiningMsg action
+                            |> performGoogleAction updatedSubModel
                             |> Tuple.mapSecond
-                                (\gapiActionCmd ->
+                                (\googleActionCmd ->
                                     Cmd.batch
-                                        [ gapiActionCmd
+                                        [ googleActionCmd
                                         , Cmd.map GotMiningMsg cmd
                                         ]
                                 )
@@ -141,25 +141,25 @@ update msg model =
 
 
 
--- GAPI UPDATE
+-- google UPDATE
 
 
-type GapiMsg
+type GoogleMsg
     = IncomingPortMsg (Result Decode.Error IncomingMsg)
-    | SendGapiRequest (Gapi.GapiRequestConfig Msg)
-    | ReceivedGapiResponse (Result Http.Error String)
-    | ReceivedInternalGapiResponse InternalGapiResponse
+    | SendGoogleRequest (Google.GoogleRequestConfig Msg)
+    | ReceivedGoogleResponse (Result Http.Error String)
+    | ReceivedInternalGoogleResponse InternalGoogleResponse
 
 
-type InternalGapiResponse
-    = FindAppFolders (Result Http.Error Gapi.GapiFileListResponse)
-    | CreateAppFolder (Result Http.Error Gapi.GapiFileCreateResponse)
+type InternalGoogleResponse
+    = FindAppFolders (Result Http.Error Google.GoogleFileListResponse)
+    | CreateAppFolder (Result Http.Error Google.GoogleFileCreateResponse)
 
 
-gapiUpdate : GapiMsg -> GapiModel -> ( GapiModel, Cmd GapiMsg, Maybe Msg )
-gapiUpdate msg model =
+googleUpdate : GoogleMsg -> GoogleModel -> ( GoogleModel, Cmd GoogleMsg, Maybe Msg )
+googleUpdate msg model =
     case ( model.state, msg ) of
-        ( Uninitialized, SendGapiRequest request ) ->
+        ( Uninitialized, SendGoogleRequest request ) ->
             ( { model
                 | state = Initializing
                 , requestQueue = model.requestQueue ++ [ request ]
@@ -168,7 +168,7 @@ gapiUpdate msg model =
             , Nothing
             )
 
-        ( SettingUpAppFolder, ReceivedInternalGapiResponse internalResponse ) ->
+        ( SettingUpAppFolder, ReceivedInternalGoogleResponse internalResponse ) ->
             case internalResponse of
                 FindAppFolders result ->
                     case result of
@@ -179,9 +179,9 @@ gapiUpdate msg model =
 
                                 [] ->
                                     ( model
-                                    , Gapi.gapiCreateAppFolder
+                                    , Google.googleCreateAppFolder
                                         model.token
-                                        (\r -> ReceivedInternalGapiResponse (CreateAppFolder r))
+                                        (\r -> ReceivedInternalGoogleResponse (CreateAppFolder r))
                                     , Nothing
                                     )
 
@@ -196,45 +196,45 @@ gapiUpdate msg model =
                         Err _ ->
                             ( { model | state = Uninitialized }, Cmd.none, Nothing )
 
-        ( Ready, SendGapiRequest request ) ->
+        ( Ready, SendGoogleRequest request ) ->
             ( { model | requestQueue = model.requestQueue ++ [ request ] }
             , if List.isEmpty model.requestQueue then
-                sendGapiRequest model.token request
+                sendGoogleRequest model.token request
 
               else
                 Cmd.none
             , Nothing
             )
 
-        ( Ready, ReceivedGapiResponse response ) ->
+        ( Ready, ReceivedGoogleResponse response ) ->
             case model.requestQueue of
                 request :: [] ->
                     ( { model | requestQueue = [] }
                     , Cmd.none
-                    , Just (Gapi.decodeGapiExpect request.expect response)
+                    , Just (Google.decodeGoogleExpect request.expect response)
                     )
 
                 request :: rest ->
                     ( { model | requestQueue = rest }
-                    , sendGapiRequest model.token request
-                    , Just (Gapi.decodeGapiExpect request.expect response)
+                    , sendGoogleRequest model.token request
+                    , Just (Google.decodeGoogleExpect request.expect response)
                     )
 
                 [] ->
                     ( { model | state = Ready }, Cmd.none, Nothing )
 
-        ( _, SendGapiRequest request ) ->
+        ( _, SendGoogleRequest request ) ->
             ( { model | requestQueue = model.requestQueue ++ [ request ] }
             , Cmd.none
             , Nothing
             )
 
-        ( _, ReceivedGapiResponse response ) ->
+        ( _, ReceivedGoogleResponse response ) ->
             case model.requestQueue of
                 request :: rest ->
                     ( { model | requestQueue = rest }
                     , Cmd.none
-                    , Just (Gapi.decodeGapiExpect request.expect response)
+                    , Just (Google.decodeGoogleExpect request.expect response)
                     )
 
                 [] ->
@@ -259,12 +259,12 @@ gapiUpdate msg model =
             ( model, Cmd.none, Nothing )
 
 
-transitionToReady : GapiModel -> ( GapiModel, Cmd GapiMsg, Maybe Msg )
+transitionToReady : GoogleModel -> ( GoogleModel, Cmd GoogleMsg, Maybe Msg )
 transitionToReady model =
     case model.requestQueue of
         request :: _ ->
             ( { model | state = Ready }
-            , sendGapiRequest model.token request
+            , sendGoogleRequest model.token request
             , Nothing
             )
 
@@ -275,7 +275,7 @@ transitionToReady model =
             )
 
 
-handleIncomingPortMsg : IncomingMsg -> GapiModel -> ( GapiModel, Cmd GapiMsg, Maybe Msg )
+handleIncomingPortMsg : IncomingMsg -> GoogleModel -> ( GoogleModel, Cmd GoogleMsg, Maybe Msg )
 handleIncomingPortMsg msg model =
     case ( model.state, msg ) of
         ( Initializing, InitializedResponse ) ->
@@ -299,9 +299,9 @@ handleIncomingPortMsg msg model =
                 | token = res.token
                 , state = SettingUpAppFolder
               }
-            , Gapi.gapiFindAppFolders res.token
+            , Google.googleFindAppFolders res.token
                 (\result ->
-                    ReceivedInternalGapiResponse (FindAppFolders result)
+                    ReceivedInternalGoogleResponse (FindAppFolders result)
                 )
             , Nothing
             )
@@ -332,18 +332,18 @@ handleIncomingPortMsg msg model =
             )
 
 
-performGapiAction : Model -> Gapi.Action Msg -> ( Model, Cmd Msg )
-performGapiAction model action =
+performGoogleAction : Model -> Google.Action Msg -> ( Model, Cmd Msg )
+performGoogleAction model action =
     case action of
-        Gapi request ->
-            update (GotGapiMsg (SendGapiRequest request)) model
+        Google request ->
+            update (GotGoogleMsg (SendGoogleRequest request)) model
 
         None ->
             ( model, Cmd.none )
 
 
-sendGapiRequest : String -> Gapi.GapiRequestConfig Msg -> Cmd GapiMsg
-sendGapiRequest token request =
+sendGoogleRequest : String -> Google.GoogleRequestConfig Msg -> Cmd GoogleMsg
+sendGoogleRequest token request =
     Http.request
         { method = request.method
         , headers =
@@ -351,7 +351,7 @@ sendGapiRequest token request =
             ]
         , url = request.url
         , body = request.body
-        , expect = Http.expectString ReceivedGapiResponse
+        , expect = Http.expectString ReceivedGoogleResponse
         , timeout = Nothing
         , tracker = Nothing
         }
@@ -362,8 +362,13 @@ sendGapiRequest token request =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions _ =
-    Sub.map GotGapiMsg messageReceiver
+subscriptions model =
+    Sub.batch
+        [ Sub.map GotGoogleMsg messageReceiver
+        , case model.page of
+            Mining subModel ->
+                Sub.map GotMiningMsg (Mining.subscriptions subModel)
+        ]
 
 
 

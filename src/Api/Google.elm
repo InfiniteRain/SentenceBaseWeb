@@ -1,13 +1,13 @@
-module Gapi exposing
+module Api.Google exposing
     ( Action(..)
     , Error(..)
-    , GapiFileCreateResponse
-    , GapiFileListResponse
-    , GapiRequestConfig
-    , decodeGapiExpect
-    , gapiCreateAppFolder
-    , gapiFindAppFolders
-    , gapiGetAppFolderId
+    , GoogleFileCreateResponse
+    , GoogleFileListResponse
+    , GoogleRequestConfig
+    , decodeGoogleExpect
+    , googleCreateAppFolder
+    , googleFindAppFolders
+    , googleGetAppFolderId
     , mapAction
     )
 
@@ -32,18 +32,18 @@ type Error
 
 type Action msg
     = None
-    | Gapi (GapiRequestConfig msg)
+    | Google (GoogleRequestConfig msg)
 
 
 mapAction : (a -> msg) -> Action a -> Action msg
 mapAction map msg =
     case msg of
-        Gapi body ->
-            Gapi
+        Google body ->
+            Google
                 { method = body.method
                 , url = body.url
                 , body = body.body
-                , expect = mapGapiExpect map body.expect
+                , expect = mapGoogleExpect map body.expect
                 }
 
         None ->
@@ -51,24 +51,24 @@ mapAction map msg =
 
 
 
--- GAPI EXTERNAL
+-- EXTERNAL
 
 
-type GapiExpect msg
-    = GetAppFolder (Decoder GapiFileListResponse) (Result Error (Maybe String) -> msg)
+type GoogleExpect msg
+    = GetAppFolder (Decoder GoogleFileListResponse) (Result Error (Maybe String) -> msg)
     | CreateAppFolder msg
 
 
-type alias GapiRequestConfig msg =
+type alias GoogleRequestConfig msg =
     { method : String
     , url : String
     , body : Http.Body
-    , expect : GapiExpect msg
+    , expect : GoogleExpect msg
     }
 
 
-mapGapiExpect : (a -> expect) -> GapiExpect a -> GapiExpect expect
-mapGapiExpect map expect =
+mapGoogleExpect : (a -> expect) -> GoogleExpect a -> GoogleExpect expect
+mapGoogleExpect map expect =
     case expect of
         GetAppFolder decoder msgMap ->
             GetAppFolder decoder (\r -> msgMap r |> map)
@@ -77,15 +77,15 @@ mapGapiExpect map expect =
             CreateAppFolder (map msg)
 
 
-decodeGapiExpect : GapiExpect msg -> Result Http.Error String -> msg
-decodeGapiExpect expect result =
+decodeGoogleExpect : GoogleExpect msg -> Result Http.Error String -> msg
+decodeGoogleExpect expect result =
     let
         mappedResult =
             Result.mapError HttpError result
     in
     case expect of
         GetAppFolder decoder map ->
-            decodeGapiMappedResult mappedResult decoder
+            decodeGoogleMappedResult mappedResult decoder
                 |> Result.map
                     (\response ->
                         List.head response.files
@@ -97,8 +97,8 @@ decodeGapiExpect expect result =
             msg
 
 
-decodeGapiMappedResult : Result Error String -> Decoder a -> Result Error a
-decodeGapiMappedResult mappedResult decoder =
+decodeGoogleMappedResult : Result Error String -> Decoder a -> Result Error a
+decodeGoogleMappedResult mappedResult decoder =
     mappedResult
         |> Result.andThen
             (\str ->
@@ -107,65 +107,65 @@ decodeGapiMappedResult mappedResult decoder =
             )
 
 
-gapiGetAppFolderId : (Result Error (Maybe String) -> msg) -> GapiRequestConfig msg
-gapiGetAppFolderId msg =
+googleGetAppFolderId : (Result Error (Maybe String) -> msg) -> GoogleRequestConfig msg
+googleGetAppFolderId msg =
     { method = "GET"
     , url =
-        googleApi
+        google
             (googleDriveRoute [ "files" ])
             [ string "q"
                 ("name = '"
                     ++ appFolderName
                     ++ "' and mimeType = '"
-                    ++ gapiMimeTypes.folder
+                    ++ googleMimeTypes.folder
                     ++ "'"
                 )
             ]
     , body = Http.emptyBody
-    , expect = GetAppFolder gapiFileListResponseDecoder msg
+    , expect = GetAppFolder googleFileListResponseDecoder msg
     }
 
 
 
--- GAPI INTERNAL
+-- INTERNAL
 
 
-gapiFindAppFolders : String -> (Result Http.Error GapiFileListResponse -> msg) -> Cmd msg
-gapiFindAppFolders token msg =
+googleFindAppFolders : String -> (Result Http.Error GoogleFileListResponse -> msg) -> Cmd msg
+googleFindAppFolders token msg =
     httpRequest
         { token = token
-        , method = get
+        , method = "GET"
         , url =
-            googleApi
+            google
                 (googleDriveRoute [ "files" ])
                 [ string "q"
                     ("name = '"
                         ++ appFolderName
                         ++ "' and mimeType = '"
-                        ++ gapiMimeTypes.folder
+                        ++ googleMimeTypes.folder
                         ++ "'"
                     )
                 , string "orderBy" "createdTime"
                 ]
         , body = Http.emptyBody
-        , expect = Http.expectJson msg gapiFileListResponseDecoder
+        , expect = Http.expectJson msg googleFileListResponseDecoder
         }
 
 
-gapiCreateAppFolder : String -> (Result Http.Error GapiFileCreateResponse -> msg) -> Cmd msg
-gapiCreateAppFolder token msg =
+googleCreateAppFolder : String -> (Result Http.Error GoogleFileCreateResponse -> msg) -> Cmd msg
+googleCreateAppFolder token msg =
     httpRequest
         { token = token
-        , method = post
-        , url = googleApi (googleDriveRoute [ "files" ]) []
+        , method = "POST"
+        , url = google (googleDriveRoute [ "files" ]) []
         , body =
             Http.jsonBody
-                (gapiFileCreateEncoder
+                (googleFileCreateEncoder
                     { name = appFolderName
-                    , mimeType = gapiMimeTypes.folder
+                    , mimeType = googleMimeTypes.folder
                     }
                 )
-        , expect = Http.expectJson msg gapiFileCreateDecoder
+        , expect = Http.expectJson msg googleFileCreateDecoder
         }
 
 
@@ -173,7 +173,7 @@ gapiCreateAppFolder token msg =
 -- DECODERS
 
 
-type alias GapiFile =
+type alias GoogleFile =
     { kind : String
     , mimeType : String
     , id : String
@@ -181,33 +181,33 @@ type alias GapiFile =
     }
 
 
-gapiFileDecoder : Decoder GapiFile
-gapiFileDecoder =
-    Decode.map4 GapiFile
+googleFileDecoder : Decoder GoogleFile
+googleFileDecoder =
+    Decode.map4 GoogleFile
         (Decode.field "kind" Decode.string)
         (Decode.field "mimeType" Decode.string)
         (Decode.field "id" Decode.string)
         (Decode.field "name" Decode.string)
 
 
-type alias GapiFileListResponse =
-    { files : List GapiFile
+type alias GoogleFileListResponse =
+    { files : List GoogleFile
     }
 
 
-gapiFileListResponseDecoder : Decoder GapiFileListResponse
-gapiFileListResponseDecoder =
-    Decode.map GapiFileListResponse
-        (Decode.field "files" (Decode.list gapiFileDecoder))
+googleFileListResponseDecoder : Decoder GoogleFileListResponse
+googleFileListResponseDecoder =
+    Decode.map GoogleFileListResponse
+        (Decode.field "files" (Decode.list googleFileDecoder))
 
 
-type alias GapiFileCreateResponse =
+type alias GoogleFileCreateResponse =
     { id : String }
 
 
-gapiFileCreateDecoder : Decoder GapiFileCreateResponse
-gapiFileCreateDecoder =
-    Decode.map GapiFileCreateResponse
+googleFileCreateDecoder : Decoder GoogleFileCreateResponse
+googleFileCreateDecoder =
+    Decode.map GoogleFileCreateResponse
         (Decode.field "id" Decode.string)
 
 
@@ -215,14 +215,14 @@ gapiFileCreateDecoder =
 -- ENCODERS
 
 
-type alias GapiFileCreate =
+type alias GoogleFileCreate =
     { name : String
     , mimeType : String
     }
 
 
-gapiFileCreateEncoder : GapiFileCreate -> Encode.Value
-gapiFileCreateEncoder createFile =
+googleFileCreateEncoder : GoogleFileCreate -> Encode.Value
+googleFileCreateEncoder createFile =
     Encode.object
         [ ( "mimeType", Encode.string createFile.mimeType )
         , ( "name", Encode.string createFile.name )
@@ -233,8 +233,8 @@ gapiFileCreateEncoder createFile =
 -- BUILDERS
 
 
-googleApi : List String -> List QueryParameter -> String
-googleApi segments params =
+google : List String -> List QueryParameter -> String
+google segments params =
     crossOrigin "https://www.googleapis.com" segments params
 
 
@@ -272,22 +272,12 @@ httpRequest { token, method, url, body, expect } =
 -- REUSED VALUES
 
 
-get : String
-get =
-    "GET"
-
-
-post : String
-post =
-    "POST"
-
-
 appFolderName : String
 appFolderName =
     "SentenceBaseData"
 
 
-gapiMimeTypes : { folder : String }
-gapiMimeTypes =
+googleMimeTypes : { folder : String }
+googleMimeTypes =
     { folder = "application/vnd.google-apps.folder"
     }
