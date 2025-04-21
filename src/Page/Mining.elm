@@ -1,7 +1,7 @@
 module Page.Mining exposing (..)
 
-import Api exposing (Action(..))
-import Html exposing (Html, button, div, li, text, ul)
+import Gapi exposing (Action(..))
+import Html exposing (Html, br, button, div, li, span, text, ul)
 import Html.Events exposing (onClick)
 
 
@@ -11,7 +11,7 @@ import Html.Events exposing (onClick)
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { ids = [] }
+    ( { ids = [], clicks = 0 }
     , Cmd.none
     )
 
@@ -21,7 +21,9 @@ init _ =
 
 
 type alias Model =
-    { ids : List String }
+    { ids : List String
+    , clicks : Int
+    }
 
 
 
@@ -30,22 +32,22 @@ type alias Model =
 
 type Msg
     = SendRequest
-    | GotRequest (Result Api.Error (Maybe String))
+    | GotRequest (Result Gapi.Error (Maybe String))
 
 
-update : Msg -> Model -> ( Model, Cmd Msg, Api.Action Msg )
+update : Msg -> Model -> ( Model, Cmd Msg, Gapi.Action Msg )
 update msg model =
     case msg of
         SendRequest ->
-            ( model
+            ( { model | clicks = model.clicks + 1 }
             , Cmd.none
-            , Api.gapiGetAppFolderId GotRequest
+            , Gapi (Gapi.gapiGetAppFolderId GotRequest)
             )
 
         GotRequest result ->
             case result of
                 Ok id ->
-                    ( { ids = model.ids ++ [ Maybe.withDefault "?" id ] }
+                    ( { model | ids = model.ids ++ [ Maybe.withDefault "?" id ] }
                     , Cmd.none
                     , None
                     )
@@ -64,7 +66,9 @@ update msg model =
 view : Model -> Html Msg
 view model =
     div []
-        [ button
+        [ span [] [ text (String.fromInt model.clicks) ]
+        , br [] []
+        , button
             [ onClick SendRequest ]
             [ text "Initialize" ]
         , ul

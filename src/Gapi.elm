@@ -1,15 +1,24 @@
-module Api exposing
+module Gapi exposing
     ( Action(..)
     , Error(..)
+    , GapiFileCreateResponse
+    , GapiFileListResponse
     , GapiRequestConfig
     , decodeGapiExpect
+    , gapiCreateAppFolder
+    , gapiFindAppFolders
     , gapiGetAppFolderId
     , mapAction
     )
 
 import Http
 import Json.Decode as Decode exposing (Decoder)
+import Json.Encode as Encode
 import Url.Builder exposing (QueryParameter, crossOrigin, string)
+
+
+
+-- ERROR
 
 
 type Error
@@ -42,7 +51,7 @@ mapAction map msg =
 
 
 
--- GAPI
+-- GAPI EXTERNAL
 
 
 type GapiExpect msg
@@ -98,15 +107,34 @@ decodeGapiMappedResult mappedResult decoder =
             )
 
 
-gapiRequest : GapiRequestConfig msg -> Action msg
-gapiRequest body =
-    Gapi body
-
-
-gapiGetAppFolderId : (Result Error (Maybe String) -> msg) -> Action msg
+gapiGetAppFolderId : (Result Error (Maybe String) -> msg) -> GapiRequestConfig msg
 gapiGetAppFolderId msg =
-    gapiRequest
-        { method = "GET"
+    { method = "GET"
+    , url =
+        googleApi
+            (googleDriveRoute [ "files" ])
+            [ string "q"
+                ("name = '"
+                    ++ appFolderName
+                    ++ "' and mimeType = '"
+                    ++ gapiMimeTypes.folder
+                    ++ "'"
+                )
+            ]
+    , body = Http.emptyBody
+    , expect = GetAppFolder gapiFileListResponseDecoder msg
+    }
+
+
+
+-- GAPI INTERNAL
+
+
+gapiFindAppFolders : String -> (Result Http.Error GapiFileListResponse -> msg) -> Cmd msg
+gapiFindAppFolders token msg =
+    httpRequest
+        { token = token
+        , method = get
         , url =
             googleApi
                 (googleDriveRoute [ "files" ])
@@ -117,9 +145,27 @@ gapiGetAppFolderId msg =
                         ++ gapiMimeTypes.folder
                         ++ "'"
                     )
+                , string "orderBy" "createdTime"
                 ]
         , body = Http.emptyBody
-        , expect = GetAppFolder gapiFileListResponseDecoder msg
+        , expect = Http.expectJson msg gapiFileListResponseDecoder
+        }
+
+
+gapiCreateAppFolder : String -> (Result Http.Error GapiFileCreateResponse -> msg) -> Cmd msg
+gapiCreateAppFolder token msg =
+    httpRequest
+        { token = token
+        , method = post
+        , url = googleApi (googleDriveRoute [ "files" ]) []
+        , body =
+            Http.jsonBody
+                (gapiFileCreateEncoder
+                    { name = appFolderName
+                    , mimeType = gapiMimeTypes.folder
+                    }
+                )
+        , expect = Http.expectJson msg gapiFileCreateDecoder
         }
 
 
@@ -155,8 +201,36 @@ gapiFileListResponseDecoder =
         (Decode.field "files" (Decode.list gapiFileDecoder))
 
 
+type alias GapiFileCreateResponse =
+    { id : String }
 
--- URL BUILDERS
+
+gapiFileCreateDecoder : Decoder GapiFileCreateResponse
+gapiFileCreateDecoder =
+    Decode.map GapiFileCreateResponse
+        (Decode.field "id" Decode.string)
+
+
+
+-- ENCODERS
+
+
+type alias GapiFileCreate =
+    { name : String
+    , mimeType : String
+    }
+
+
+gapiFileCreateEncoder : GapiFileCreate -> Encode.Value
+gapiFileCreateEncoder createFile =
+    Encode.object
+        [ ( "mimeType", Encode.string createFile.mimeType )
+        , ( "name", Encode.string createFile.name )
+        ]
+
+
+
+-- BUILDERS
 
 
 googleApi : List String -> List QueryParameter -> String
@@ -169,8 +243,43 @@ googleDriveRoute additional =
     [ "drive", "v3" ] ++ additional
 
 
+tokenHeader : String -> Http.Header
+tokenHeader token =
+    Http.header "Authorization" ("Bearer " ++ token)
+
+
+httpRequest :
+    { token : String
+    , method : String
+    , url : String
+    , body : Http.Body
+    , expect : Http.Expect msg
+    }
+    -> Cmd msg
+httpRequest { token, method, url, body, expect } =
+    Http.request
+        { method = method
+        , headers = [ tokenHeader token ]
+        , url = url
+        , body = body
+        , expect = expect
+        , timeout = Nothing
+        , tracker = Nothing
+        }
+
+
 
 -- REUSED VALUES
+
+
+get : String
+get =
+    "GET"
+
+
+post : String
+post =
+    "POST"
 
 
 appFolderName : String

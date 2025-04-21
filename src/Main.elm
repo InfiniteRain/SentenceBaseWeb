@@ -1,12 +1,12 @@
 port module Main exposing (..)
 
-import Api exposing (Action(..), GapiRequestConfig, gapiGetAppFolderId)
 import Browser
+import Gapi exposing (Action(..))
 import Html exposing (Html)
-import Http
+import Http exposing (request)
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
-import Page.Mining as Mining
+import Page.Mining as Mining exposing (Msg(..))
 import Triple
 
 
@@ -34,7 +34,7 @@ messageSender msg =
 port messageReceiverPort : (Decode.Value -> msg) -> Sub msg
 
 
-messageReceiver : Sub ApiMsg
+messageReceiver : Sub GapiMsg
 messageReceiver =
     messageReceiverPort (\value -> IncomingPortMsg (Decode.decodeValue portMsgDecoder value))
 
@@ -44,7 +44,7 @@ messageReceiver =
 
 
 type alias Model =
-    { apiModel : ApiModel
+    { gapiModel : GapiModel
     , page : Page
     }
 
@@ -59,10 +59,11 @@ init _ =
         ( miningModel, miningCmd ) =
             Mining.init ()
     in
-    ( { apiModel =
+    ( { gapiModel =
             { state = Uninitialized
-            , token = ""
             , requestQueue = []
+            , token = ""
+            , appFolderId = ""
             }
       , page = Mining miningModel
       }
@@ -71,22 +72,23 @@ init _ =
 
 
 
--- API MODEL
+-- GAPI MODEL
 
 
-type alias ApiModel =
-    { state : ApiState
+type alias GapiModel =
+    { state : GapiState
+    , requestQueue : List (Gapi.GapiRequestConfig Msg)
     , token : String
-    , requestQueue : List (Api.GapiRequestConfig Msg)
+    , appFolderId : String
     }
 
 
-type ApiState
+type GapiState
     = Uninitialized
     | Initializing
     | Authenticating
     | SettingUpAppFolder
-    | Authenticated
+    | Ready
 
 
 
@@ -94,18 +96,18 @@ type ApiState
 
 
 type Msg
-    = GotApiMsg ApiMsg
+    = GotGapiMsg GapiMsg
     | GotMiningMsg Mining.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case ( msg, model.page ) of
-        ( GotApiMsg subMsg, _ ) ->
-            updateApi subMsg model.apiModel
+        ( GotGapiMsg subMsg, _ ) ->
+            gapiUpdate subMsg model.gapiModel
                 |> Triple.mapFirst
-                    (\updatedModel -> { model | apiModel = updatedModel })
-                |> (\( updatedModel, apiCmd, maybeOutMsg ) ->
+                    (\updatedModel -> { model | gapiModel = updatedModel })
+                |> (\( updatedModel, gapiCmd, maybeOutMsg ) ->
                         maybeOutMsg
                             |> Maybe.map
                                 (\outMsg ->
@@ -115,8 +117,8 @@ update msg model =
                             |> Tuple.mapSecond
                                 (\updateCmd ->
                                     Cmd.batch
-                                        [ Cmd.map GotApiMsg apiCmd
-                                        , updateCmd
+                                        [ updateCmd
+                                        , Cmd.map GotGapiMsg gapiCmd
                                         ]
                                 )
                    )
@@ -126,41 +128,75 @@ update msg model =
                 |> Triple.mapFirst
                     (\updatedSubModel -> { model | page = Mining updatedSubModel })
                 |> (\( updatedSubModel, cmd, action ) ->
-                        Api.mapAction GotMiningMsg action
-                            |> performApiAction updatedSubModel
+                        Gapi.mapAction GotMiningMsg action
+                            |> performGapiAction updatedSubModel
                             |> Tuple.mapSecond
-                                (\apiActionCmd ->
+                                (\gapiActionCmd ->
                                     Cmd.batch
-                                        [ Cmd.map GotMiningMsg cmd
-                                        , apiActionCmd
+                                        [ gapiActionCmd
+                                        , Cmd.map GotMiningMsg cmd
                                         ]
                                 )
                    )
 
 
 
--- API UPDATE
+-- GAPI UPDATE
 
 
-type ApiMsg
+type GapiMsg
     = IncomingPortMsg (Result Decode.Error IncomingMsg)
-    | SendGapiRequest (Api.GapiRequestConfig Msg)
-    | ReceiveGapiResponse (Result Http.Error String)
+    | SendGapiRequest (Gapi.GapiRequestConfig Msg)
+    | ReceivedGapiResponse (Result Http.Error String)
+    | ReceivedInternalGapiResponse InternalGapiResponse
 
 
-updateApi : ApiMsg -> ApiModel -> ( ApiModel, Cmd ApiMsg, Maybe Msg )
-updateApi msg model =
+type InternalGapiResponse
+    = FindAppFolders (Result Http.Error Gapi.GapiFileListResponse)
+    | CreateAppFolder (Result Http.Error Gapi.GapiFileCreateResponse)
+
+
+gapiUpdate : GapiMsg -> GapiModel -> ( GapiModel, Cmd GapiMsg, Maybe Msg )
+gapiUpdate msg model =
     case ( model.state, msg ) of
         ( Uninitialized, SendGapiRequest request ) ->
             ( { model
                 | state = Initializing
-                , requestQueue = request :: model.requestQueue
+                , requestQueue = model.requestQueue ++ [ request ]
               }
             , messageSender InitializeRequest
             , Nothing
             )
 
-        ( Authenticated, SendGapiRequest request ) ->
+        ( SettingUpAppFolder, ReceivedInternalGapiResponse internalResponse ) ->
+            case internalResponse of
+                FindAppFolders result ->
+                    case result of
+                        Ok response ->
+                            case response.files of
+                                file :: _ ->
+                                    transitionToReady { model | appFolderId = file.id }
+
+                                [] ->
+                                    ( model
+                                    , Gapi.gapiCreateAppFolder
+                                        model.token
+                                        (\r -> ReceivedInternalGapiResponse (CreateAppFolder r))
+                                    , Nothing
+                                    )
+
+                        Err _ ->
+                            ( { model | state = Uninitialized }, Cmd.none, Nothing )
+
+                CreateAppFolder result ->
+                    case result of
+                        Ok response ->
+                            transitionToReady { model | appFolderId = response.id }
+
+                        Err _ ->
+                            ( { model | state = Uninitialized }, Cmd.none, Nothing )
+
+        ( Ready, SendGapiRequest request ) ->
             ( { model | requestQueue = model.requestQueue ++ [ request ] }
             , if List.isEmpty model.requestQueue then
                 sendGapiRequest model.token request
@@ -170,31 +206,22 @@ updateApi msg model =
             , Nothing
             )
 
-        ( SettingUpAppFolder, SendGapiRequest request ) ->
-            ( model, Cmd.none, Nothing )
-
-        ( Authenticated, ReceiveGapiResponse response ) ->
+        ( Ready, ReceivedGapiResponse response ) ->
             case model.requestQueue of
                 request :: [] ->
-                    ( { model
-                        | state = Authenticated
-                        , requestQueue = []
-                      }
+                    ( { model | requestQueue = [] }
                     , Cmd.none
-                    , Just (Api.decodeGapiExpect request.expect response)
+                    , Just (Gapi.decodeGapiExpect request.expect response)
                     )
 
                 request :: rest ->
-                    ( { model
-                        | state = Authenticated
-                        , requestQueue = rest
-                      }
+                    ( { model | requestQueue = rest }
                     , sendGapiRequest model.token request
-                    , Just (Api.decodeGapiExpect request.expect response)
+                    , Just (Gapi.decodeGapiExpect request.expect response)
                     )
 
                 [] ->
-                    ( { model | state = Authenticated }, Cmd.none, Nothing )
+                    ( { model | state = Ready }, Cmd.none, Nothing )
 
         ( _, SendGapiRequest request ) ->
             ( { model | requestQueue = model.requestQueue ++ [ request ] }
@@ -202,27 +229,21 @@ updateApi msg model =
             , Nothing
             )
 
-        ( unhandledState, ReceiveGapiResponse response ) ->
-            let
-                _ =
-                    Debug.log
-                        "received gapi response in a non-sending state"
-                        ( unhandledState, response )
-            in
+        ( _, ReceivedGapiResponse response ) ->
             case model.requestQueue of
                 request :: rest ->
                     ( { model | requestQueue = rest }
                     , Cmd.none
-                    , Just (Api.decodeGapiExpect request.expect response)
+                    , Just (Gapi.decodeGapiExpect request.expect response)
                     )
 
                 [] ->
-                    ( model, Cmd.none, Nothing )
+                    ( { model | state = Ready }, Cmd.none, Nothing )
 
         ( _, IncomingPortMsg portMsg ) ->
             case portMsg of
                 Ok decodedPortMsg ->
-                    handleIncomingMsg decodedPortMsg model
+                    handleIncomingPortMsg decodedPortMsg model
 
                 Err err ->
                     let
@@ -234,9 +255,28 @@ updateApi msg model =
                     , Nothing
                     )
 
+        ( _, _ ) ->
+            ( model, Cmd.none, Nothing )
 
-handleIncomingMsg : IncomingMsg -> ApiModel -> ( ApiModel, Cmd ApiMsg, Maybe Msg )
-handleIncomingMsg msg model =
+
+transitionToReady : GapiModel -> ( GapiModel, Cmd GapiMsg, Maybe Msg )
+transitionToReady model =
+    case model.requestQueue of
+        request :: _ ->
+            ( { model | state = Ready }
+            , sendGapiRequest model.token request
+            , Nothing
+            )
+
+        [] ->
+            ( { model | state = Ready }
+            , Cmd.none
+            , Nothing
+            )
+
+
+handleIncomingPortMsg : IncomingMsg -> GapiModel -> ( GapiModel, Cmd GapiMsg, Maybe Msg )
+handleIncomingPortMsg msg model =
     case ( model.state, msg ) of
         ( Initializing, InitializedResponse ) ->
             ( { model | state = Authenticating }
@@ -255,18 +295,16 @@ handleIncomingMsg msg model =
             )
 
         ( Authenticating, AuthenticateResponse res ) ->
-            case model.requestQueue of
-                request :: _ ->
-                    ( { model | token = res.token, state = Authenticated }
-                    , sendGapiRequest res.token request
-                    , Nothing
-                    )
-
-                [] ->
-                    ( { model | token = res.token, state = Authenticated }
-                    , Cmd.none
-                    , Nothing
-                    )
+            ( { model
+                | token = res.token
+                , state = SettingUpAppFolder
+              }
+            , Gapi.gapiFindAppFolders res.token
+                (\result ->
+                    ReceivedInternalGapiResponse (FindAppFolders result)
+                )
+            , Nothing
+            )
 
         ( Authenticating, AuthenticateFailedResponse err ) ->
             let
@@ -284,7 +322,9 @@ handleIncomingMsg msg model =
         unhandledCombination ->
             let
                 _ =
-                    Debug.log "unhandled state/msg combination in handleIncomingMsg" unhandledCombination
+                    Debug.log
+                        "unhandled state/msg combination in handleIncomingMsg"
+                        unhandledCombination
             in
             ( model
             , Cmd.none
@@ -292,14 +332,29 @@ handleIncomingMsg msg model =
             )
 
 
-performApiAction : Model -> Api.Action Msg -> ( Model, Cmd Msg )
-performApiAction model action =
+performGapiAction : Model -> Gapi.Action Msg -> ( Model, Cmd Msg )
+performGapiAction model action =
     case action of
         Gapi request ->
-            update (GotApiMsg (SendGapiRequest request)) model
+            update (GotGapiMsg (SendGapiRequest request)) model
 
         None ->
             ( model, Cmd.none )
+
+
+sendGapiRequest : String -> Gapi.GapiRequestConfig Msg -> Cmd GapiMsg
+sendGapiRequest token request =
+    Http.request
+        { method = request.method
+        , headers =
+            [ Http.header "Authorization" ("Bearer " ++ token)
+            ]
+        , url = request.url
+        , body = request.body
+        , expect = Http.expectString ReceivedGapiResponse
+        , timeout = Nothing
+        , tracker = Nothing
+        }
 
 
 
@@ -308,7 +363,7 @@ performApiAction model action =
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-    Sub.map GotApiMsg messageReceiver
+    Sub.map GotGapiMsg messageReceiver
 
 
 
@@ -397,22 +452,3 @@ authenticateFailedDecoder : Decoder IncomingMsg
 authenticateFailedDecoder =
     Decode.map (\msg -> AuthenticateFailedResponse { message = msg })
         (Decode.field "message" Decode.string)
-
-
-
--- API
-
-
-sendGapiRequest : String -> GapiRequestConfig Msg -> Cmd ApiMsg
-sendGapiRequest token request =
-    Http.request
-        { method = request.method
-        , headers =
-            [ Http.header "Authorization" ("Bearer " ++ token)
-            ]
-        , url = request.url
-        , body = request.body
-        , expect = Http.expectString ReceiveGapiResponse
-        , timeout = Nothing
-        , tracker = Nothing
-        }
