@@ -1,6 +1,6 @@
 port module Main exposing (..)
 
-import Api exposing (GapiRequestConfig, Update(..))
+import Api exposing (GapiRequestConfig, Update(..), gapiGetAppFolderId)
 import Browser
 import Html exposing (Html)
 import Http
@@ -84,8 +84,8 @@ type ApiState
     = Uninitialized
     | Initializing
     | Authenticating
-    | Idle
-    | Sending
+    | SettingUpAppFolder
+    | Authenticated
 
 
 
@@ -170,38 +170,24 @@ updateApi msg model =
             , Nothing
             )
 
-        ( Initializing, SendGapiRequest request ) ->
+        ( Authenticated, SendGapiRequest request ) ->
             ( { model | requestQueue = model.requestQueue ++ [ request ] }
-            , Cmd.none
+            , if List.isEmpty model.requestQueue then
+                sendGapiRequest model.token request
+
+              else
+                Cmd.none
             , Nothing
             )
 
-        ( Authenticating, SendGapiRequest request ) ->
-            ( { model | requestQueue = model.requestQueue ++ [ request ] }
-            , Cmd.none
-            , Nothing
-            )
+        ( SettingUpAppFolder, SendGapiRequest request ) ->
+            ( model, Cmd.none, Nothing )
 
-        ( Idle, SendGapiRequest request ) ->
-            ( { model
-                | state = Sending
-                , requestQueue = model.requestQueue ++ [ request ]
-              }
-            , sendGapiRequest model.token request
-            , Nothing
-            )
-
-        ( Sending, SendGapiRequest request ) ->
-            ( { model | requestQueue = request :: model.requestQueue }
-            , Cmd.none
-            , Nothing
-            )
-
-        ( Sending, ReceiveGapiResponse response ) ->
+        ( Authenticated, ReceiveGapiResponse response ) ->
             case model.requestQueue of
                 request :: [] ->
                     ( { model
-                        | state = Idle
+                        | state = Authenticated
                         , requestQueue = []
                       }
                     , Cmd.none
@@ -210,7 +196,7 @@ updateApi msg model =
 
                 request :: rest ->
                     ( { model
-                        | state = Sending
+                        | state = Authenticated
                         , requestQueue = rest
                       }
                     , sendGapiRequest model.token request
@@ -218,7 +204,13 @@ updateApi msg model =
                     )
 
                 [] ->
-                    ( { model | state = Idle }, Cmd.none, Nothing )
+                    ( { model | state = Authenticated }, Cmd.none, Nothing )
+
+        ( _, SendGapiRequest request ) ->
+            ( { model | requestQueue = model.requestQueue ++ [ request ] }
+            , Cmd.none
+            , Nothing
+            )
 
         ( unhandledState, ReceiveGapiResponse response ) ->
             let
@@ -275,13 +267,13 @@ handleIncomingMsg msg model =
         ( Authenticating, AuthenticateResponse res ) ->
             case model.requestQueue of
                 request :: _ ->
-                    ( { model | token = res.token, state = Sending }
+                    ( { model | token = res.token, state = Authenticated }
                     , sendGapiRequest res.token request
                     , Nothing
                     )
 
                 [] ->
-                    ( { model | token = res.token, state = Idle }
+                    ( { model | token = res.token, state = Authenticated }
                     , Cmd.none
                     , Nothing
                     )
