@@ -1,12 +1,13 @@
 port module Main exposing (..)
 
-import Api exposing (GapiRequestConfig, Update(..), gapiGetAppFolderId)
+import Api exposing (Action(..), GapiRequestConfig, gapiGetAppFolderId)
 import Browser
 import Html exposing (Html)
 import Http
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
 import Page.Mining as Mining
+import Triple
 
 
 
@@ -101,51 +102,40 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case ( msg, model.page ) of
         ( GotApiMsg subMsg, _ ) ->
-            let
-                ( newApiModel, apiCmd, maybeOutMsg ) =
-                    updateApi subMsg model.apiModel
-
-                newModel =
-                    { model | apiModel = newApiModel }
-
-                res =
-                    case maybeOutMsg of
-                        Just outMsg ->
-                            update outMsg newModel
-
-                        Nothing ->
-                            ( newModel, Cmd.none )
-            in
-            ( Tuple.first res
-            , Cmd.batch [ Cmd.map GotApiMsg apiCmd, Tuple.second res ]
-            )
+            updateApi subMsg model.apiModel
+                |> Triple.mapFirst
+                    (\updatedModel -> { model | apiModel = updatedModel })
+                |> (\( updatedModel, apiCmd, maybeOutMsg ) ->
+                        maybeOutMsg
+                            |> Maybe.map
+                                (\outMsg ->
+                                    update outMsg updatedModel
+                                )
+                            |> Maybe.withDefault ( updatedModel, Cmd.none )
+                            |> Tuple.mapSecond
+                                (\updateCmd ->
+                                    Cmd.batch
+                                        [ Cmd.map GotApiMsg apiCmd
+                                        , updateCmd
+                                        ]
+                                )
+                   )
 
         ( GotMiningMsg subMsg, Mining subModel ) ->
-            let
-                ( newMiningModel, apiUpdate ) =
-                    Mining.update subMsg subModel
-
-                newModel =
-                    { model | page = Mining newMiningModel }
-            in
-            case apiUpdate of
-                None ->
-                    ( newModel
-                    , Cmd.none
-                    )
-
-                Command cmd ->
-                    ( newModel
-                    , Cmd.map GotMiningMsg cmd
-                    )
-
-                Api action ->
-                    let
-                        ( newerModel, apiCmd ) =
-                            Api.mapAction GotMiningMsg action
-                                |> performApiAction newModel
-                    in
-                    ( newerModel, apiCmd )
+            Mining.update subMsg subModel
+                |> Triple.mapFirst
+                    (\updatedSubModel -> { model | page = Mining updatedSubModel })
+                |> (\( updatedSubModel, cmd, action ) ->
+                        Api.mapAction GotMiningMsg action
+                            |> performApiAction updatedSubModel
+                            |> Tuple.mapSecond
+                                (\apiActionCmd ->
+                                    Cmd.batch
+                                        [ Cmd.map GotMiningMsg cmd
+                                        , apiActionCmd
+                                        ]
+                                )
+                   )
 
 
 
@@ -305,8 +295,11 @@ handleIncomingMsg msg model =
 performApiAction : Model -> Api.Action Msg -> ( Model, Cmd Msg )
 performApiAction model action =
     case action of
-        Api.Gapi request ->
+        Gapi request ->
             update (GotApiMsg (SendGapiRequest request)) model
+
+        None ->
+            ( model, Cmd.none )
 
 
 

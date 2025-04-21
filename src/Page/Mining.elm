@@ -1,6 +1,6 @@
 module Page.Mining exposing (..)
 
-import Api exposing (Update(..))
+import Api exposing (Action(..))
 import Html exposing (Html, button, div, li, text, ul)
 import Html.Events exposing (onClick)
 
@@ -33,21 +33,28 @@ type Msg
     | GotRequest (Result Api.Error (Maybe String))
 
 
-update : Msg -> Model -> ( Model, Api.Update Msg )
+update : Msg -> Model -> ( Model, Cmd Msg, Api.Action Msg )
 update msg model =
     case msg of
         SendRequest ->
             ( model
+            , Cmd.none
             , Api.gapiGetAppFolderId GotRequest
             )
 
         GotRequest result ->
             case result of
                 Ok id ->
-                    ( { ids = model.ids ++ [ Maybe.withDefault "?" id ] }, None )
+                    ( { ids = model.ids ++ [ Maybe.withDefault "?" id ] }
+                    , Cmd.none
+                    , None
+                    )
 
                 Err _ ->
-                    ( model, None )
+                    ( model
+                    , Cmd.none
+                    , None
+                    )
 
 
 

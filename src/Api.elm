@@ -2,7 +2,6 @@ module Api exposing
     ( Action(..)
     , Error(..)
     , GapiRequestConfig
-    , Update(..)
     , decodeGapiExpect
     , gapiGetAppFolderId
     , mapAction
@@ -11,16 +10,6 @@ module Api exposing
 import Http
 import Json.Decode as Decode exposing (Decoder)
 import Url.Builder exposing (QueryParameter, crossOrigin, string)
-
-
-
--- TYPES
-
-
-type Update msg
-    = None
-    | Command (Cmd msg)
-    | Api (Action msg)
 
 
 type Error
@@ -33,7 +22,8 @@ type Error
 
 
 type Action msg
-    = Gapi (GapiRequestConfig msg)
+    = None
+    | Gapi (GapiRequestConfig msg)
 
 
 mapAction : (a -> msg) -> Action a -> Action msg
@@ -46,6 +36,9 @@ mapAction map msg =
                 , body = body.body
                 , expect = mapGapiExpect map body.expect
                 }
+
+        None ->
+            None
 
 
 
@@ -105,12 +98,12 @@ decodeGapiMappedResult mappedResult decoder =
             )
 
 
-gapiRequest : GapiRequestConfig msg -> Update msg
+gapiRequest : GapiRequestConfig msg -> Action msg
 gapiRequest body =
-    Api (Gapi body)
+    Gapi body
 
 
-gapiGetAppFolderId : (Result Error (Maybe String) -> msg) -> Update msg
+gapiGetAppFolderId : (Result Error (Maybe String) -> msg) -> Action msg
 gapiGetAppFolderId msg =
     gapiRequest
         { method = "GET"
