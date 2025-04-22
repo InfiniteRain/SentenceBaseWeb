@@ -13,6 +13,7 @@ port module Api.Google exposing
 import Http
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
+import OutMsg exposing (OutMsg(..))
 import Url.Builder exposing (QueryParameter, crossOrigin, string)
 
 
@@ -83,7 +84,7 @@ type InternalResponse
     | CreateAppFolder (Result Http.Error FileCreateResponse)
 
 
-update : Msg rootMsg -> Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), Maybe rootMsg )
+update : Msg rootMsg -> Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
 update msg model =
     case ( model.state, msg ) of
         ( Uninitialized, SentRequest request ) ->
@@ -92,7 +93,7 @@ update msg model =
                 , requestQueue = model.requestQueue ++ [ request ]
               }
             , messageSender InitializeRequest
-            , Nothing
+            , None
             )
 
         ( SettingUpAppFolder, ReceivedInternalResponse internalResponse ) ->
@@ -109,11 +110,11 @@ update msg model =
                                     , createAppFolderRequest
                                         model.token
                                         (\r -> ReceivedInternalResponse (CreateAppFolder r))
-                                    , Nothing
+                                    , None
                                     )
 
                         Err _ ->
-                            ( { model | state = Uninitialized }, Cmd.none, Nothing )
+                            ( { model | state = Uninitialized }, Cmd.none, None )
 
                 CreateAppFolder result ->
                     case result of
@@ -121,7 +122,7 @@ update msg model =
                             transitionToReady { model | appFolderId = response.id }
 
                         Err _ ->
-                            ( { model | state = Uninitialized }, Cmd.none, Nothing )
+                            ( { model | state = Uninitialized }, Cmd.none, None )
 
         ( Ready, SentRequest request ) ->
             ( { model | requestQueue = model.requestQueue ++ [ request ] }
@@ -130,7 +131,7 @@ update msg model =
 
               else
                 Cmd.none
-            , Nothing
+            , None
             )
 
         ( Ready, ReceivedResponse response ) ->
@@ -138,22 +139,22 @@ update msg model =
                 request :: [] ->
                     ( { model | requestQueue = [] }
                     , Cmd.none
-                    , Just (decodeExpect request.expect response)
+                    , Single (decodeExpect request.expect response)
                     )
 
                 request :: rest ->
                     ( { model | requestQueue = rest }
                     , sendRequest model.token request
-                    , Just (decodeExpect request.expect response)
+                    , Single (decodeExpect request.expect response)
                     )
 
                 [] ->
-                    ( { model | state = Ready }, Cmd.none, Nothing )
+                    ( { model | state = Ready }, Cmd.none, None )
 
         ( _, SentRequest request ) ->
             ( { model | requestQueue = model.requestQueue ++ [ request ] }
             , Cmd.none
-            , Nothing
+            , None
             )
 
         ( _, ReceivedResponse response ) ->
@@ -161,11 +162,11 @@ update msg model =
                 request :: rest ->
                     ( { model | requestQueue = rest }
                     , Cmd.none
-                    , Just (decodeExpect request.expect response)
+                    , Single (decodeExpect request.expect response)
                     )
 
                 [] ->
-                    ( { model | state = Ready }, Cmd.none, Nothing )
+                    ( { model | state = Ready }, Cmd.none, None )
 
         ( _, ReceivedIncomingPortMsg portMsg ) ->
             case portMsg of
@@ -179,20 +180,20 @@ update msg model =
                     in
                     ( model
                     , Cmd.none
-                    , Nothing
+                    , None
                     )
 
         ( _, _ ) ->
-            ( model, Cmd.none, Nothing )
+            ( model, Cmd.none, None )
 
 
-handleIncomingPortMsg : IncomingMsg -> Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), Maybe rootMsg )
+handleIncomingPortMsg : IncomingMsg -> Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
 handleIncomingPortMsg msg model =
     case ( model.state, msg ) of
         ( Initializing, InitializedResponse ) ->
             ( { model | state = Authenticating }
             , messageSender AuthenticateRequest
-            , Nothing
+            , None
             )
 
         ( Initializing, InitializeFailedResponse err ) ->
@@ -202,7 +203,7 @@ handleIncomingPortMsg msg model =
             in
             ( { model | state = Uninitialized }
             , Cmd.none
-            , Nothing
+            , None
             )
 
         ( Authenticating, AuthenticateResponse res ) ->
@@ -214,7 +215,7 @@ handleIncomingPortMsg msg model =
                 (\result ->
                     ReceivedInternalResponse (FindAppFolders result)
                 )
-            , Nothing
+            , None
             )
 
         ( Authenticating, AuthenticateFailedResponse err ) ->
@@ -224,7 +225,7 @@ handleIncomingPortMsg msg model =
             in
             ( { model | state = Uninitialized }
             , Cmd.none
-            , Nothing
+            , None
             )
 
         ( Authenticating, InteractionRequiredResponse ) ->
@@ -239,23 +240,23 @@ handleIncomingPortMsg msg model =
             in
             ( model
             , Cmd.none
-            , Nothing
+            , None
             )
 
 
-transitionToReady : Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), Maybe rootMsg )
+transitionToReady : Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
 transitionToReady model =
     case model.requestQueue of
         request :: _ ->
             ( { model | state = Ready }
             , sendRequest model.token request
-            , Nothing
+            , None
             )
 
         [] ->
             ( { model | state = Ready }
             , Cmd.none
-            , Nothing
+            , None
             )
 
 
@@ -293,22 +294,22 @@ type Expect msg
     | CreateAppFolderResponse msg
 
 
+mapExpect : (a -> expect) -> Expect a -> Expect expect
+mapExpect map expect =
+    case expect of
+        GetAppFolderResponse decoder toMsg ->
+            GetAppFolderResponse decoder (\result -> map (toMsg result))
+
+        CreateAppFolderResponse msg ->
+            CreateAppFolderResponse (map msg)
+
+
 type alias RequestConfig msg =
     { method : String
     , url : String
     , body : Http.Body
     , expect : Expect msg
     }
-
-
-mapExpect : (a -> expect) -> Expect a -> Expect expect
-mapExpect map expect =
-    case expect of
-        GetAppFolderResponse decoder msgMap ->
-            GetAppFolderResponse decoder (\r -> msgMap r |> map)
-
-        CreateAppFolderResponse msg ->
-            CreateAppFolderResponse (map msg)
 
 
 decodeExpect : Expect msg -> Result Http.Error String -> msg

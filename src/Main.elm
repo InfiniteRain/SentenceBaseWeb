@@ -2,8 +2,10 @@ module Main exposing (..)
 
 import Api exposing (Action(..))
 import Api.Google as Google exposing (Msg(..))
+import Api.Wiktionary as Wiktionary exposing (Msg(..))
 import Browser
 import Html exposing (Html)
+import OutMsg exposing (OutMsg)
 import Page.Mining as Mining exposing (Msg(..))
 import Triple
 
@@ -28,6 +30,7 @@ main =
 
 type alias Model =
     { googleModel : Google.Model Msg
+    , wiktionaryModel : Wiktionary.Model Msg
     , page : Page
     }
 
@@ -42,15 +45,20 @@ init _ =
         ( googleModel, googleCmd ) =
             Google.init ()
 
+        ( wiktionaryModel, wiktionaryCmd ) =
+            Wiktionary.init ()
+
         ( miningModel, miningCmd ) =
             Mining.init ()
     in
     ( { googleModel = googleModel
+      , wiktionaryModel = wiktionaryModel
       , page = Mining miningModel
       }
     , Cmd.batch
-        [ Cmd.map GotMiningMsg miningCmd
-        , Cmd.map GotGoogleMsg googleCmd
+        [ Cmd.map GotGoogleMsg googleCmd
+        , Cmd.map GotWiktionaryMsg wiktionaryCmd
+        , Cmd.map GotMiningMsg miningCmd
         ]
     )
 
@@ -61,6 +69,7 @@ init _ =
 
 type Msg
     = GotGoogleMsg (Google.Msg Msg)
+    | GotWiktionaryMsg (Wiktionary.Msg Msg)
     | GotMiningMsg Mining.Msg
 
 
@@ -69,30 +78,33 @@ update msg model =
     case ( msg, model.page ) of
         ( GotGoogleMsg subMsg, _ ) ->
             Google.update subMsg model.googleModel
-                |> updateApiWith
-                    (\updatedModel -> { model | googleModel = updatedModel })
+                |> updateWithApi
+                    (\googleModel -> { model | googleModel = googleModel })
                     GotGoogleMsg
+
+        ( GotWiktionaryMsg subMsg, _ ) ->
+            Wiktionary.update subMsg model.wiktionaryModel
+                |> updateWithApi
+                    (\wiktionaryModel -> { model | wiktionaryModel = wiktionaryModel })
+                    GotWiktionaryMsg
 
         ( GotMiningMsg subMsg, Mining subModel ) ->
             Mining.update subMsg subModel
-                |> updatePageWith Mining GotMiningMsg model
+                |> updateWithPage Mining GotMiningMsg model
 
 
-updateApiWith :
+updateWithApi :
     (subModel -> Model)
     -> (subMsg -> Msg)
-    -> ( subModel, Cmd subMsg, Maybe Msg )
+    -> ( subModel, Cmd subMsg, OutMsg Msg )
     -> ( Model, Cmd Msg )
-updateApiWith toModel toMsg result =
+updateWithApi toModel toMsg result =
     result
         |> Triple.mapFirst toModel
-        |> (\( updatedModel, googleCmd, maybeOutMsg ) ->
-                maybeOutMsg
-                    |> Maybe.map
-                        (\outMsg ->
-                            update outMsg updatedModel
-                        )
-                    |> Maybe.withDefault ( updatedModel, Cmd.none )
+        |> (\( updatedModel, googleCmd, outMsg ) ->
+                outMsg
+                    |> OutMsg.toList
+                    |> resolveOutMsgUpdates updatedModel Cmd.none
                     |> Tuple.mapSecond
                         (\updateCmd ->
                             Cmd.batch
@@ -103,13 +115,27 @@ updateApiWith toModel toMsg result =
            )
 
 
-updatePageWith :
+resolveOutMsgUpdates : Model -> Cmd Msg -> List Msg -> ( Model, Cmd Msg )
+resolveOutMsgUpdates model cmd msgs =
+    case msgs of
+        msg :: rest ->
+            let
+                ( newModel, newCmd ) =
+                    update msg model
+            in
+            resolveOutMsgUpdates newModel (Cmd.batch [ cmd, newCmd ]) rest
+
+        [] ->
+            ( model, cmd )
+
+
+updateWithPage :
     (subModel -> Page)
     -> (subMsg -> Msg)
     -> Model
     -> ( subModel, Cmd subMsg, Api.Action subMsg )
     -> ( Model, Cmd Msg )
-updatePageWith toPage toMsg model result =
+updateWithPage toPage toMsg model result =
     result
         |> Triple.mapFirst
             (\updatedSubModel -> { model | page = toPage updatedSubModel })
@@ -130,7 +156,10 @@ performApiAction : Model -> Api.Action Msg -> ( Model, Cmd Msg )
 performApiAction model action =
     case action of
         Google request ->
-            update (GotGoogleMsg (SentRequest request)) model
+            update (GotGoogleMsg (Google.SentRequest request)) model
+
+        Wiktionary request ->
+            update (GotWiktionaryMsg (Wiktionary.SentRequest request)) model
 
         None ->
             ( model, Cmd.none )
@@ -144,6 +173,7 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ Sub.map GotGoogleMsg (Google.subscriptions model.googleModel)
+        , Sub.map GotWiktionaryMsg (Wiktionary.subscriptions model.wiktionaryModel)
         , case model.page of
             Mining subModel ->
                 Sub.map GotMiningMsg (Mining.subscriptions subModel)

@@ -1,28 +1,13 @@
 port module Page.Mining exposing (..)
 
 import Api exposing (Action(..))
-import Api.Google as Google exposing (getAppFolderId)
-import Api.Wiktionary as Wiktionary
+import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
 import Html exposing (Html, br, button, div, li, span, text, ul)
+import Html.Attributes exposing (class)
 import Html.Events exposing (onClick)
-import Html.Parser exposing (Node)
 import Http
-import Parser
 import Regex
-
-
-
--- INIT
-
-
-init : () -> ( Model, Cmd Msg )
-init _ =
-    ( { sentenceWords = []
-      , selectedWord = Nothing
-      , parsed = Nothing
-      }
-    , Cmd.none
-    )
+import RegexExtra
 
 
 
@@ -39,8 +24,22 @@ port clipboardPort : (String -> msg) -> Sub msg
 type alias Model =
     { sentenceWords : List String
     , selectedWord : Maybe String
-    , parsed : Maybe (Result (List Parser.DeadEnd) (List Html.Parser.Node))
+    , definition : Maybe Usages
+    , pressed : Int
+    , received : Int
     }
+
+
+init : () -> ( Model, Cmd Msg )
+init _ =
+    ( { sentenceWords = []
+      , selectedWord = Nothing
+      , definition = Nothing
+      , pressed = 0
+      , received = 0
+      }
+    , Cmd.none
+    )
 
 
 
@@ -50,8 +49,7 @@ type alias Model =
 type Msg
     = ClipboardUpdated String
     | WordSelected String
-    | DefinitionFetched (Result Http.Error Wiktionary.WiktionaryResponse)
-    | Test (Result Google.Error (Maybe String))
+    | DefinitionFetched (Result Http.Error Wiktionary.Usages)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Api.Action Msg )
@@ -62,7 +60,7 @@ update msg model =
                 | sentenceWords =
                     str
                         |> String.trim
-                        |> Regex.split space
+                        |> Regex.split RegexExtra.space
                 , selectedWord = Nothing
               }
             , Cmd.none
@@ -72,54 +70,31 @@ update msg model =
         WordSelected str ->
             ( { model
                 | selectedWord = Just str
+                , pressed = model.pressed + 1
               }
-              -- , Wiktionary.wiktionaryRequest str DefinitionFetched
             , Cmd.none
-            , Google (getAppFolderId Test)
+            , Wiktionary (Wiktionary.getDefinitions str DefinitionFetched)
             )
 
         DefinitionFetched result ->
             case result of
-                Ok r ->
-                    case r.nl of
-                        Just nl ->
-                            case List.head nl of
-                                Just h ->
-                                    case List.head h.definitions of
-                                        Just d ->
-                                            let
-                                                a =
-                                                    Html.Parser.run d.definition
-
-                                                _ =
-                                                    Debug.log "html" (Html.Parser.run d.definition)
-                                            in
-                                            ( { model | parsed = Just a }, Cmd.none, None )
-
-                                        Nothing ->
-                                            ( model, Cmd.none, None )
-
-                                Nothing ->
-                                    ( model, Cmd.none, None )
-
-                        Nothing ->
-                            ( model, Cmd.none, None )
+                Ok definition ->
+                    ( { model
+                        | definition = Just definition
+                        , received = model.received + 1
+                      }
+                    , Cmd.none
+                    , None
+                    )
 
                 Err _ ->
-                    ( model, Cmd.none, None )
-
-        Test a ->
-            let
-                _ =
-                    Debug.log "here" a
-            in
-            ( model, Cmd.none, None )
-
-
-space : Regex.Regex
-space =
-    Regex.fromString "\\s+"
-        |> Maybe.withDefault Regex.never
+                    ( { model
+                        | definition = Nothing
+                        , received = model.received + 1
+                      }
+                    , Cmd.none
+                    , None
+                    )
 
 
 
@@ -139,13 +114,69 @@ view : Model -> Html Msg
 view model =
     div
         []
-        (List.map (\word -> button [ onClick (WordSelected (String.toLower word)) ] [ text word ]) model.sentenceWords
-            ++ [ br [] []
-               , span [] [ text (Maybe.withDefault "" model.selectedWord) ]
-               ]
-            ++ List.repeat 10 (br [] [])
-            ++ [ span [] [ text "Wij hebben een serieus probleem" ]
-               , br [] []
-               , span [] [ text "zag" ]
-               ]
+        (List.concat
+            [ List.map (\word -> button [ onClick (WordSelected (String.toLower word)) ] [ text word ]) model.sentenceWords
+            , model.selectedWord
+                |> Maybe.map
+                    (\word ->
+                        [ br [] []
+                        , span [] [ text word ]
+                        ]
+                    )
+                |> Maybe.withDefault []
+            , [ br [] [] ]
+            , model.definition
+                |> Maybe.map (\definition -> [ usagesView definition ])
+                |> Maybe.withDefault []
+            , [ span [] [ text <| "pressed: " ++ String.fromInt model.pressed ++ ", received " ++ String.fromInt model.received ]
+              ]
+            ]
         )
+
+
+usagesView : Wiktionary.Usages -> Html Msg
+usagesView (Usages usages) =
+    div [] (List.indexedMap definitionsView usages)
+
+
+definitionsView : Int -> Wiktionary.Definitions -> Html Msg
+definitionsView index (Definitions definitions) =
+    div [ class "etimology" ]
+        [ text <| "Etimology " ++ String.fromInt (index + 1)
+        , ul []
+            (List.map definitionView definitions)
+        ]
+
+
+definitionView : Wiktionary.Definition -> Html Msg
+definitionView definition =
+    li [] <|
+        List.concat
+            [ Regex.split RegexExtra.newLines definition.text
+                |> List.map (\line -> div [] [ text (String.trim line) ])
+            , definition.formUsages |> List.concatMap formUsagesView
+            ]
+
+
+formUsagesView : Wiktionary.FormUsages -> List (Html Msg)
+formUsagesView { word, usages } =
+    case usages of
+        Usages formUsages ->
+            List.indexedMap
+                (\index (Definitions definitions) ->
+                    div []
+                        [ div [ class "etimology" ]
+                            [ text <| "Etimology " ++ String.fromInt (index + 1) ++ " for " ++ word
+                            , ul [] <|
+                                List.map
+                                    (\definition ->
+                                        li []
+                                            (Regex.split RegexExtra.newLines definition.text
+                                                |> List.map (\line -> div [] [ text (String.trim line) ])
+                                            )
+                                    )
+                                    definitions
+                            ]
+                        ]
+                )
+                formUsages
