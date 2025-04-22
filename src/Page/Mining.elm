@@ -1,8 +1,12 @@
 port module Page.Mining exposing (..)
 
 import Api.Google as Google exposing (Action(..))
+import Api.Wiktionary as Wiktionary
 import Html exposing (Html, br, button, div, li, span, text, ul)
 import Html.Events exposing (onClick)
+import Html.Parser exposing (Node)
+import Http
+import Parser
 import Regex
 
 
@@ -14,6 +18,7 @@ init : () -> ( Model, Cmd Msg )
 init _ =
     ( { sentenceWords = []
       , selectedWord = Nothing
+      , parsed = Nothing
       }
     , Cmd.none
     )
@@ -33,6 +38,7 @@ port clipboardPort : (String -> msg) -> Sub msg
 type alias Model =
     { sentenceWords : List String
     , selectedWord : Maybe String
+    , parsed : Maybe (Result (List Parser.DeadEnd) (List Html.Parser.Node))
     }
 
 
@@ -43,6 +49,7 @@ type alias Model =
 type Msg
     = ClipboardUpdated String
     | WordSelected String
+    | DefinitionFetched (Result Http.Error Wiktionary.WiktionaryResponse)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Google.Action Msg )
@@ -64,9 +71,39 @@ update msg model =
             ( { model
                 | selectedWord = Just str
               }
-            , Cmd.none
+            , Wiktionary.wiktionaryRequest str DefinitionFetched
             , None
             )
+
+        DefinitionFetched result ->
+            case result of
+                Ok r ->
+                    case r.nl of
+                        Just nl ->
+                            case List.head nl of
+                                Just h ->
+                                    case List.head h.definitions of
+                                        Just d ->
+                                            let
+                                                a =
+                                                    Html.Parser.run d.definition
+
+                                                _ =
+                                                    Debug.log "html" (Html.Parser.run d.definition)
+                                            in
+                                            ( { model | parsed = Just a }, Cmd.none, None )
+
+                                        Nothing ->
+                                            ( model, Cmd.none, None )
+
+                                Nothing ->
+                                    ( model, Cmd.none, None )
+
+                        Nothing ->
+                            ( model, Cmd.none, None )
+
+                Err _ ->
+                    ( model, Cmd.none, None )
 
 
 space : Regex.Regex
@@ -97,5 +134,8 @@ view model =
                , span [] [ text (Maybe.withDefault "" model.selectedWord) ]
                ]
             ++ List.repeat 10 (br [] [])
-            ++ [ span [] [ text "Wij hebben een serieus probleem" ] ]
+            ++ [ span [] [ text "Wij hebben een serieus probleem" ]
+               , br [] []
+               , span [] [ text "zag" ]
+               ]
         )

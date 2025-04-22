@@ -5,8 +5,8 @@ module Api.Google exposing
     , GoogleFileListResponse
     , GoogleRequestConfig
     , decodeGoogleExpect
-    , googleCreateAppFolder
-    , googleFindAppFolders
+    , googleCreateAppFolderRequest
+    , googleFindAppFoldersRequest
     , googleGetAppFolderId
     , mapAction
     )
@@ -111,7 +111,7 @@ googleGetAppFolderId : (Result Error (Maybe String) -> msg) -> GoogleRequestConf
 googleGetAppFolderId msg =
     { method = "GET"
     , url =
-        google
+        googleUrl
             (googleDriveRoute [ "files" ])
             [ string "q"
                 ("name = '"
@@ -130,13 +130,13 @@ googleGetAppFolderId msg =
 -- INTERNAL
 
 
-googleFindAppFolders : String -> (Result Http.Error GoogleFileListResponse -> msg) -> Cmd msg
-googleFindAppFolders token msg =
+googleFindAppFoldersRequest : String -> (Result Http.Error GoogleFileListResponse -> msg) -> Cmd msg
+googleFindAppFoldersRequest token msg =
     httpRequest
         { token = token
         , method = "GET"
         , url =
-            google
+            googleUrl
                 (googleDriveRoute [ "files" ])
                 [ string "q"
                     ("name = '"
@@ -152,12 +152,12 @@ googleFindAppFolders token msg =
         }
 
 
-googleCreateAppFolder : String -> (Result Http.Error GoogleFileCreateResponse -> msg) -> Cmd msg
-googleCreateAppFolder token msg =
+googleCreateAppFolderRequest : String -> (Result Http.Error GoogleFileCreateResponse -> msg) -> Cmd msg
+googleCreateAppFolderRequest token msg =
     httpRequest
         { token = token
         , method = "POST"
-        , url = google (googleDriveRoute [ "files" ]) []
+        , url = googleUrl (googleDriveRoute [ "files" ]) []
         , body =
             Http.jsonBody
                 (googleFileCreateEncoder
@@ -233,8 +233,8 @@ googleFileCreateEncoder createFile =
 -- BUILDERS
 
 
-google : List String -> List QueryParameter -> String
-google segments params =
+googleUrl : List String -> List QueryParameter -> String
+googleUrl segments params =
     crossOrigin "https://www.googleapis.com" segments params
 
 

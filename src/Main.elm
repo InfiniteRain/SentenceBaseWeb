@@ -72,7 +72,7 @@ init _ =
 
 
 
--- google MODEL
+-- GOOGLE MODEL
 
 
 type alias GoogleModel =
@@ -141,7 +141,7 @@ update msg model =
 
 
 
--- google UPDATE
+-- GOOGLE UPDATE
 
 
 type GoogleMsg
@@ -179,7 +179,7 @@ googleUpdate msg model =
 
                                 [] ->
                                     ( model
-                                    , Google.googleCreateAppFolder
+                                    , Google.googleCreateAppFolderRequest
                                         model.token
                                         (\r -> ReceivedInternalGoogleResponse (CreateAppFolder r))
                                     , Nothing
@@ -299,7 +299,7 @@ handleIncomingPortMsg msg model =
                 | token = res.token
                 , state = SettingUpAppFolder
               }
-            , Google.googleFindAppFolders res.token
+            , Google.googleFindAppFoldersRequest res.token
                 (\result ->
                     ReceivedInternalGoogleResponse (FindAppFolders result)
                 )
