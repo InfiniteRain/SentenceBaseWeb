@@ -1,14 +1,13 @@
-module Api.Google exposing
-    ( Action(..)
-    , Error(..)
-    , GoogleFileCreateResponse
-    , GoogleFileListResponse
-    , GoogleRequestConfig
-    , decodeGoogleExpect
-    , googleCreateAppFolderRequest
-    , googleFindAppFoldersRequest
-    , googleGetAppFolderId
-    , mapAction
+port module Api.Google exposing
+    ( Error(..)
+    , Model
+    , Msg(..)
+    , RequestConfig
+    , getAppFolderId
+    , init
+    , mapExpect
+    , subscriptions
+    , update
     )
 
 import Http
@@ -18,7 +17,270 @@ import Url.Builder exposing (QueryParameter, crossOrigin, string)
 
 
 
--- ERROR
+-- PORTS
+
+
+port messageSenderPort : Encode.Value -> Cmd msg
+
+
+messageSender : OutgoingPortMsg -> Cmd msg
+messageSender msg =
+    msg |> portMsgEncoder |> messageSenderPort
+
+
+port messageReceiverPort : (Decode.Value -> msg) -> Sub msg
+
+
+messageReceiver : Sub (Msg rootMsg)
+messageReceiver =
+    messageReceiverPort (\value -> ReceivedIncomingPortMsg (Decode.decodeValue portMsgDecoder value))
+
+
+
+-- MODEL
+
+
+type alias Model rootMsg =
+    { state : State
+    , requestQueue : List (RequestConfig rootMsg)
+    , token : String
+    , appFolderId : String
+    }
+
+
+type State
+    = Uninitialized
+    | Initializing
+    | Authenticating
+    | SettingUpAppFolder
+    | Ready
+
+
+init : () -> ( Model rootMsg, Cmd (Msg rootMsg) )
+init _ =
+    ( { state = Uninitialized
+      , requestQueue = []
+      , token = ""
+      , appFolderId = ""
+      }
+    , Cmd.none
+    )
+
+
+
+-- UPDATE
+
+
+type Msg rootMsg
+    = ReceivedIncomingPortMsg (Result Decode.Error IncomingMsg)
+    | SentRequest (RequestConfig rootMsg)
+    | ReceivedResponse (Result Http.Error String)
+    | ReceivedInternalResponse InternalResponse
+
+
+type InternalResponse
+    = FindAppFolders (Result Http.Error FileListResponse)
+    | CreateAppFolder (Result Http.Error FileCreateResponse)
+
+
+update : Msg rootMsg -> Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), Maybe rootMsg )
+update msg model =
+    case ( model.state, msg ) of
+        ( Uninitialized, SentRequest request ) ->
+            ( { model
+                | state = Initializing
+                , requestQueue = model.requestQueue ++ [ request ]
+              }
+            , messageSender InitializeRequest
+            , Nothing
+            )
+
+        ( SettingUpAppFolder, ReceivedInternalResponse internalResponse ) ->
+            case internalResponse of
+                FindAppFolders result ->
+                    case result of
+                        Ok response ->
+                            case response.files of
+                                file :: _ ->
+                                    transitionToReady { model | appFolderId = file.id }
+
+                                [] ->
+                                    ( model
+                                    , createAppFolderRequest
+                                        model.token
+                                        (\r -> ReceivedInternalResponse (CreateAppFolder r))
+                                    , Nothing
+                                    )
+
+                        Err _ ->
+                            ( { model | state = Uninitialized }, Cmd.none, Nothing )
+
+                CreateAppFolder result ->
+                    case result of
+                        Ok response ->
+                            transitionToReady { model | appFolderId = response.id }
+
+                        Err _ ->
+                            ( { model | state = Uninitialized }, Cmd.none, Nothing )
+
+        ( Ready, SentRequest request ) ->
+            ( { model | requestQueue = model.requestQueue ++ [ request ] }
+            , if List.isEmpty model.requestQueue then
+                sendRequest model.token request
+
+              else
+                Cmd.none
+            , Nothing
+            )
+
+        ( Ready, ReceivedResponse response ) ->
+            case model.requestQueue of
+                request :: [] ->
+                    ( { model | requestQueue = [] }
+                    , Cmd.none
+                    , Just (decodeExpect request.expect response)
+                    )
+
+                request :: rest ->
+                    ( { model | requestQueue = rest }
+                    , sendRequest model.token request
+                    , Just (decodeExpect request.expect response)
+                    )
+
+                [] ->
+                    ( { model | state = Ready }, Cmd.none, Nothing )
+
+        ( _, SentRequest request ) ->
+            ( { model | requestQueue = model.requestQueue ++ [ request ] }
+            , Cmd.none
+            , Nothing
+            )
+
+        ( _, ReceivedResponse response ) ->
+            case model.requestQueue of
+                request :: rest ->
+                    ( { model | requestQueue = rest }
+                    , Cmd.none
+                    , Just (decodeExpect request.expect response)
+                    )
+
+                [] ->
+                    ( { model | state = Ready }, Cmd.none, Nothing )
+
+        ( _, ReceivedIncomingPortMsg portMsg ) ->
+            case portMsg of
+                Ok decodedPortMsg ->
+                    handleIncomingPortMsg decodedPortMsg model
+
+                Err err ->
+                    let
+                        _ =
+                            Debug.log "error decoding port msg" (Decode.errorToString err)
+                    in
+                    ( model
+                    , Cmd.none
+                    , Nothing
+                    )
+
+        ( _, _ ) ->
+            ( model, Cmd.none, Nothing )
+
+
+handleIncomingPortMsg : IncomingMsg -> Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), Maybe rootMsg )
+handleIncomingPortMsg msg model =
+    case ( model.state, msg ) of
+        ( Initializing, InitializedResponse ) ->
+            ( { model | state = Authenticating }
+            , messageSender AuthenticateRequest
+            , Nothing
+            )
+
+        ( Initializing, InitializeFailedResponse err ) ->
+            let
+                _ =
+                    Debug.log "initialization error" err
+            in
+            ( { model | state = Uninitialized }
+            , Cmd.none
+            , Nothing
+            )
+
+        ( Authenticating, AuthenticateResponse res ) ->
+            ( { model
+                | token = res.token
+                , state = SettingUpAppFolder
+              }
+            , findAppFoldersRequest res.token
+                (\result ->
+                    ReceivedInternalResponse (FindAppFolders result)
+                )
+            , Nothing
+            )
+
+        ( Authenticating, AuthenticateFailedResponse err ) ->
+            let
+                _ =
+                    Debug.log "authentication error" err
+            in
+            ( { model | state = Uninitialized }
+            , Cmd.none
+            , Nothing
+            )
+
+        ( Authenticating, InteractionRequiredResponse ) ->
+            Debug.todo "Implement interactionRequiredResponse"
+
+        unhandledCombination ->
+            let
+                _ =
+                    Debug.log
+                        "unhandled state/msg combination in handleIncomingMsg"
+                        unhandledCombination
+            in
+            ( model
+            , Cmd.none
+            , Nothing
+            )
+
+
+transitionToReady : Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), Maybe rootMsg )
+transitionToReady model =
+    case model.requestQueue of
+        request :: _ ->
+            ( { model | state = Ready }
+            , sendRequest model.token request
+            , Nothing
+            )
+
+        [] ->
+            ( { model | state = Ready }
+            , Cmd.none
+            , Nothing
+            )
+
+
+sendRequest : String -> RequestConfig rootMsg -> Cmd (Msg rootMsg)
+sendRequest token request =
+    httpRequest
+        { token = token
+        , method = request.method
+        , url = request.url
+        , body = request.body
+        , expect = Http.expectString ReceivedResponse
+        }
+
+
+
+-- SUBSCRIPTIONS
+
+
+subscriptions : Model rootMsg -> Sub (Msg rootMsg)
+subscriptions _ =
+    messageReceiver
+
+
+
+-- EXTERNAL API
 
 
 type Error
@@ -26,66 +288,38 @@ type Error
     | DecodeError Decode.Error
 
 
-
--- ACTION
-
-
-type Action msg
-    = None
-    | Google (GoogleRequestConfig msg)
+type Expect msg
+    = GetAppFolderResponse (Decoder FileListResponse) (Result Error (Maybe String) -> msg)
+    | CreateAppFolderResponse msg
 
 
-mapAction : (a -> msg) -> Action a -> Action msg
-mapAction map msg =
-    case msg of
-        Google body ->
-            Google
-                { method = body.method
-                , url = body.url
-                , body = body.body
-                , expect = mapGoogleExpect map body.expect
-                }
-
-        None ->
-            None
-
-
-
--- EXTERNAL
-
-
-type GoogleExpect msg
-    = GetAppFolder (Decoder GoogleFileListResponse) (Result Error (Maybe String) -> msg)
-    | CreateAppFolder msg
-
-
-type alias GoogleRequestConfig msg =
+type alias RequestConfig msg =
     { method : String
     , url : String
     , body : Http.Body
-    , expect : GoogleExpect msg
+    , expect : Expect msg
     }
 
 
-mapGoogleExpect : (a -> expect) -> GoogleExpect a -> GoogleExpect expect
-mapGoogleExpect map expect =
+mapExpect : (a -> expect) -> Expect a -> Expect expect
+mapExpect map expect =
     case expect of
-        GetAppFolder decoder msgMap ->
-            GetAppFolder decoder (\r -> msgMap r |> map)
+        GetAppFolderResponse decoder msgMap ->
+            GetAppFolderResponse decoder (\r -> msgMap r |> map)
 
-        CreateAppFolder msg ->
-            CreateAppFolder (map msg)
+        CreateAppFolderResponse msg ->
+            CreateAppFolderResponse (map msg)
 
 
-decodeGoogleExpect : GoogleExpect msg -> Result Http.Error String -> msg
-decodeGoogleExpect expect result =
+decodeExpect : Expect msg -> Result Http.Error String -> msg
+decodeExpect expect result =
     let
         mappedResult =
             Result.mapError HttpError result
     in
     case expect of
-        GetAppFolder decoder map ->
-            decodeGoogleMappedResult mappedResult decoder
+        GetAppFolderResponse decoder map ->
+            decodeMappedResult mappedResult decoder
                 |> Result.map
                     (\response ->
                         List.head response.files
@@ -93,12 +327,12 @@ decodeGoogleExpect expect result =
                     )
                 |> map
 
-        CreateAppFolder msg ->
+        CreateAppFolderResponse msg ->
             msg
 
 
-decodeGoogleMappedResult : Result Error String -> Decoder a -> Result Error a
-decodeGoogleMappedResult mappedResult decoder =
+decodeMappedResult : Result Error String -> Decoder a -> Result Error a
+decodeMappedResult mappedResult decoder =
     mappedResult
         |> Result.andThen
             (\str ->
@@ -107,8 +341,8 @@ decodeGoogleMappedResult mappedResult decoder =
             )
 
 
-googleGetAppFolderId : (Result Error (Maybe String) -> msg) -> GoogleRequestConfig msg
-googleGetAppFolderId msg =
+getAppFolderId : (Result Error (Maybe String) -> msg) -> RequestConfig msg
+getAppFolderId msg =
     { method = "GET"
     , url =
         googleUrl
@@ -122,16 +356,16 @@ googleGetAppFolderId msg =
                 )
             ]
     , body = Http.emptyBody
-    , expect = GetAppFolder googleFileListResponseDecoder msg
+    , expect = GetAppFolderResponse fileListResponseDecoder msg
     }
 
 
 
--- INTERNAL
+-- INTERNAL API
 
 
-googleFindAppFoldersRequest : String -> (Result Http.Error GoogleFileListResponse -> msg) -> Cmd msg
-googleFindAppFoldersRequest token msg =
+findAppFoldersRequest : String -> (Result Http.Error FileListResponse -> msg) -> Cmd msg
+findAppFoldersRequest token msg =
     httpRequest
         { token = token
         , method = "GET"
@@ -148,32 +382,109 @@ googleFindAppFoldersRequest token msg =
                 , string "orderBy" "createdTime"
                 ]
         , body = Http.emptyBody
-        , expect = Http.expectJson msg googleFileListResponseDecoder
+        , expect = Http.expectJson msg fileListResponseDecoder
         }
 
 
-googleCreateAppFolderRequest : String -> (Result Http.Error GoogleFileCreateResponse -> msg) -> Cmd msg
-googleCreateAppFolderRequest token msg =
+createAppFolderRequest : String -> (Result Http.Error FileCreateResponse -> msg) -> Cmd msg
+createAppFolderRequest token msg =
     httpRequest
         { token = token
         , method = "POST"
         , url = googleUrl (googleDriveRoute [ "files" ]) []
         , body =
             Http.jsonBody
-                (googleFileCreateEncoder
+                (fileCreateEncoder
                     { name = appFolderName
                     , mimeType = googleMimeTypes.folder
                     }
                 )
-        , expect = Http.expectJson msg googleFileCreateDecoder
+        , expect = Http.expectJson msg fileCreateDecoder
         }
+
+
+
+-- OUTGOING MESSAGE
+
+
+type OutgoingPortMsg
+    = InitializeRequest
+    | AuthenticateRequest
+
+
+portMsgEncoder : OutgoingPortMsg -> Encode.Value
+portMsgEncoder msg =
+    case msg of
+        InitializeRequest ->
+            Encode.object [ ( "tag", Encode.string "initializeRequest" ) ]
+
+        AuthenticateRequest ->
+            Encode.object [ ( "tag", Encode.string "authenticateRequest" ) ]
+
+
+
+-- INCOMING MESSAGE
+
+
+type IncomingMsg
+    = InitializedResponse
+    | InitializeFailedResponse { message : String }
+    | AuthenticateResponse { token : String }
+    | AuthenticateFailedResponse { message : String }
+    | InteractionRequiredResponse
+
+
+portMsgDecoder : Decoder IncomingMsg
+portMsgDecoder =
+    Decode.field "tag" Decode.string
+        |> Decode.andThen portMsgFromTag
+
+
+portMsgFromTag : String -> Decoder IncomingMsg
+portMsgFromTag str =
+    case str of
+        "initializedResponse" ->
+            Decode.succeed InitializedResponse
+
+        "initializeFailedResponse" ->
+            initializeFailedDecoder
+
+        "authenticateResponse" ->
+            authenticateResponseDecoder
+
+        "authenticateFailedResponse" ->
+            authenticateFailedDecoder
+
+        "interactionRequiredResponse" ->
+            Decode.succeed InteractionRequiredResponse
+
+        _ ->
+            Decode.fail ("Invalid tag: " ++ str)
+
+
+initializeFailedDecoder : Decoder IncomingMsg
+initializeFailedDecoder =
+    Decode.map (\msg -> InitializeFailedResponse { message = msg })
+        (Decode.field "message" Decode.string)
+
+
+authenticateResponseDecoder : Decoder IncomingMsg
+authenticateResponseDecoder =
+    Decode.map (\token -> AuthenticateResponse { token = token })
+        (Decode.field "token" Decode.string)
+
+
+authenticateFailedDecoder : Decoder IncomingMsg
+authenticateFailedDecoder =
+    Decode.map (\msg -> AuthenticateFailedResponse { message = msg })
+        (Decode.field "message" Decode.string)
 
 
 
 -- DECODERS
 
 
-type alias GoogleFile =
+type alias File =
     { kind : String
     , mimeType : String
     , id : String
@@ -181,33 +492,33 @@ type alias GoogleFile =
     }
 
 
-googleFileDecoder : Decoder GoogleFile
-googleFileDecoder =
-    Decode.map4 GoogleFile
+fileDecoder : Decoder File
+fileDecoder =
+    Decode.map4 File
         (Decode.field "kind" Decode.string)
         (Decode.field "mimeType" Decode.string)
         (Decode.field "id" Decode.string)
         (Decode.field "name" Decode.string)
 
 
-type alias GoogleFileListResponse =
-    { files : List GoogleFile
+type alias FileListResponse =
+    { files : List File
     }
 
 
-googleFileListResponseDecoder : Decoder GoogleFileListResponse
-googleFileListResponseDecoder =
-    Decode.map GoogleFileListResponse
-        (Decode.field "files" (Decode.list googleFileDecoder))
+fileListResponseDecoder : Decoder FileListResponse
+fileListResponseDecoder =
+    Decode.map FileListResponse
+        (Decode.field "files" (Decode.list fileDecoder))
 
 
-type alias GoogleFileCreateResponse =
+type alias FileCreateResponse =
     { id : String }
 
 
-googleFileCreateDecoder : Decoder GoogleFileCreateResponse
-googleFileCreateDecoder =
-    Decode.map GoogleFileCreateResponse
+fileCreateDecoder : Decoder FileCreateResponse
+fileCreateDecoder =
+    Decode.map FileCreateResponse
         (Decode.field "id" Decode.string)
 
 
@@ -215,14 +526,14 @@ googleFileCreateDecoder =
 -- ENCODERS
 
 
-type alias GoogleFileCreate =
+type alias FileCreate =
     { name : String
     , mimeType : String
     }
 
 
-googleFileCreateEncoder : GoogleFileCreate -> Encode.Value
-googleFileCreateEncoder createFile =
+fileCreateEncoder : FileCreate -> Encode.Value
+fileCreateEncoder createFile =
     Encode.object
         [ ( "mimeType", Encode.string createFile.mimeType )
         , ( "name", Encode.string createFile.name )

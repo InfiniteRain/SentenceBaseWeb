@@ -1,6 +1,7 @@
 port module Page.Mining exposing (..)
 
-import Api.Google as Google exposing (Action(..))
+import Api exposing (Action(..))
+import Api.Google as Google exposing (getAppFolderId)
 import Api.Wiktionary as Wiktionary
 import Html exposing (Html, br, button, div, li, span, text, ul)
 import Html.Events exposing (onClick)
@@ -50,9 +51,10 @@ type Msg
     = ClipboardUpdated String
     | WordSelected String
     | DefinitionFetched (Result Http.Error Wiktionary.WiktionaryResponse)
+    | Test (Result Google.Error (Maybe String))
 
 
-update : Msg -> Model -> ( Model, Cmd Msg, Google.Action Msg )
+update : Msg -> Model -> ( Model, Cmd Msg, Api.Action Msg )
 update msg model =
     case msg of
         ClipboardUpdated str ->
@@ -71,8 +73,9 @@ update msg model =
             ( { model
                 | selectedWord = Just str
               }
-            , Wiktionary.wiktionaryRequest str DefinitionFetched
-            , None
+              -- , Wiktionary.wiktionaryRequest str DefinitionFetched
+            , Cmd.none
+            , Google (getAppFolderId Test)
             )
 
         DefinitionFetched result ->
@@ -104,6 +107,13 @@ update msg model =
 
                 Err _ ->
                     ( model, Cmd.none, None )
+
+        Test a ->
+            let
+                _ =
+                    Debug.log "here" a
+            in
+            ( model, Cmd.none, None )
 
 
 space : Regex.Regex
