@@ -34,7 +34,10 @@ port messageReceiverPort : (Decode.Value -> msg) -> Sub msg
 
 messageReceiver : Sub (Msg rootMsg)
 messageReceiver =
-    messageReceiverPort (\value -> ReceivedIncomingPortMsg (Decode.decodeValue portMsgDecoder value))
+    messageReceiverPort
+        (\value ->
+            GotIncomingPortMsg (Decode.decodeValue portMsgDecoder value)
+        )
 
 
 
@@ -46,6 +49,7 @@ type alias Model rootMsg =
     , requestQueue : List (RequestConfig rootMsg)
     , token : String
     , appFolderId : String
+    , mainSheetId : String
     }
 
 
@@ -63,6 +67,7 @@ init _ =
       , requestQueue = []
       , token = ""
       , appFolderId = ""
+      , mainSheetId = ""
       }
     , Cmd.none
     )
@@ -73,18 +78,19 @@ init _ =
 
 
 type Msg rootMsg
-    = ReceivedIncomingPortMsg (Result Decode.Error IncomingMsg)
+    = GotIncomingPortMsg (Result Decode.Error IncomingMsg)
     | SentRequest (RequestConfig rootMsg)
-    | ReceivedResponse (Result Http.Error String)
-    | ReceivedInternalResponse InternalResponse
+    | GotResponse (Result Http.Error String)
+    | GotFindAppFolderResponse (Result Http.Error FileListResponse)
+    | GotCreateAppFolderResponse (Result Http.Error FileCreateResponse)
+    | GotFindMainSheetResponse (Result Http.Error FileListResponse)
+    | GotCreateMainSheetResponse (Result Http.Error FileCreateResponse)
 
 
-type InternalResponse
-    = FindAppFolders (Result Http.Error FileListResponse)
-    | CreateAppFolder (Result Http.Error FileCreateResponse)
-
-
-update : Msg rootMsg -> Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
+update :
+    Msg rootMsg
+    -> Model rootMsg
+    -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
 update msg model =
     case ( model.state, msg ) of
         ( Uninitialized, SentRequest request ) ->
@@ -96,33 +102,62 @@ update msg model =
             , None
             )
 
-        ( SettingUpAppFolder, ReceivedInternalResponse internalResponse ) ->
-            case internalResponse of
-                FindAppFolders result ->
-                    case result of
-                        Ok response ->
-                            case response.files of
-                                file :: _ ->
-                                    transitionToReady { model | appFolderId = file.id }
+        ( SettingUpAppFolder, GotFindAppFolderResponse (Ok response) ) ->
+            case response.files of
+                file :: _ ->
+                    ( { model | appFolderId = file.id }
+                    , findMainSheetRequest
+                        model.token
+                        file.id
+                        GotFindMainSheetResponse
+                    , None
+                    )
 
-                                [] ->
-                                    ( model
-                                    , createAppFolderRequest
-                                        model.token
-                                        (\r -> ReceivedInternalResponse (CreateAppFolder r))
-                                    , None
-                                    )
+                [] ->
+                    ( model
+                    , createAppFolderRequest
+                        model.token
+                        GotCreateAppFolderResponse
+                    , None
+                    )
 
-                        Err _ ->
-                            ( { model | state = Uninitialized }, Cmd.none, None )
+        ( SettingUpAppFolder, GotFindAppFolderResponse (Err _) ) ->
+            ( { model | state = Uninitialized }, Cmd.none, None )
 
-                CreateAppFolder result ->
-                    case result of
-                        Ok response ->
-                            transitionToReady { model | appFolderId = response.id }
+        ( SettingUpAppFolder, GotCreateAppFolderResponse (Ok response) ) ->
+            ( { model | appFolderId = response.id }
+            , createMainSheetRequest
+                model.token
+                response.id
+                GotCreateMainSheetResponse
+            , None
+            )
 
-                        Err _ ->
-                            ( { model | state = Uninitialized }, Cmd.none, None )
+        ( SettingUpAppFolder, GotCreateAppFolderResponse (Err _) ) ->
+            ( { model | state = Uninitialized }, Cmd.none, None )
+
+        ( SettingUpAppFolder, GotFindMainSheetResponse (Ok response) ) ->
+            case response.files of
+                file :: _ ->
+                    transitionToReady { model | mainSheetId = file.id }
+
+                [] ->
+                    ( model
+                    , createMainSheetRequest
+                        model.token
+                        model.appFolderId
+                        GotCreateMainSheetResponse
+                    , None
+                    )
+
+        ( SettingUpAppFolder, GotFindMainSheetResponse (Err _) ) ->
+            ( { model | state = Uninitialized }, Cmd.none, None )
+
+        ( SettingUpAppFolder, GotCreateMainSheetResponse (Ok response) ) ->
+            transitionToReady { model | mainSheetId = response.id }
+
+        ( SettingUpAppFolder, GotCreateMainSheetResponse (Err _) ) ->
+            ( { model | state = Uninitialized }, Cmd.none, None )
 
         ( Ready, SentRequest request ) ->
             ( { model | requestQueue = model.requestQueue ++ [ request ] }
@@ -134,7 +169,7 @@ update msg model =
             , None
             )
 
-        ( Ready, ReceivedResponse response ) ->
+        ( Ready, GotResponse response ) ->
             case model.requestQueue of
                 request :: [] ->
                     ( { model | requestQueue = [] }
@@ -157,7 +192,7 @@ update msg model =
             , None
             )
 
-        ( _, ReceivedResponse response ) ->
+        ( _, GotResponse response ) ->
             case model.requestQueue of
                 request :: rest ->
                     ( { model | requestQueue = rest }
@@ -168,7 +203,7 @@ update msg model =
                 [] ->
                     ( { model | state = Ready }, Cmd.none, None )
 
-        ( _, ReceivedIncomingPortMsg portMsg ) ->
+        ( _, GotIncomingPortMsg portMsg ) ->
             case portMsg of
                 Ok decodedPortMsg ->
                     handleIncomingPortMsg decodedPortMsg model
@@ -176,7 +211,9 @@ update msg model =
                 Err err ->
                     let
                         _ =
-                            Debug.log "error decoding port msg" (Decode.errorToString err)
+                            Debug.log
+                                "error decoding port msg"
+                                (Decode.errorToString err)
                     in
                     ( model
                     , Cmd.none
@@ -187,7 +224,10 @@ update msg model =
             ( model, Cmd.none, None )
 
 
-handleIncomingPortMsg : IncomingMsg -> Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
+handleIncomingPortMsg :
+    IncomingMsg
+    -> Model rootMsg
+    -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
 handleIncomingPortMsg msg model =
     case ( model.state, msg ) of
         ( Initializing, InitializedResponse ) ->
@@ -211,10 +251,7 @@ handleIncomingPortMsg msg model =
                 | token = res.token
                 , state = SettingUpAppFolder
               }
-            , findAppFoldersRequest res.token
-                (\result ->
-                    ReceivedInternalResponse (FindAppFolders result)
-                )
+            , findAppFoldersRequest res.token GotFindAppFolderResponse
             , None
             )
 
@@ -244,7 +281,9 @@ handleIncomingPortMsg msg model =
             )
 
 
-transitionToReady : Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
+transitionToReady :
+    Model rootMsg
+    -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
 transitionToReady model =
     case model.requestQueue of
         request :: _ ->
@@ -267,7 +306,7 @@ sendRequest token request =
         , method = request.method
         , url = request.url
         , body = request.body
-        , expect = Http.expectString ReceivedResponse
+        , expect = Http.expectString GotResponse
         }
 
 
@@ -290,7 +329,11 @@ type Error
 
 
 type Expect msg
-    = GetAppFolderResponse (Decoder FileListResponse) (Result Error (Maybe String) -> msg)
+    = GetAppFolderResponse
+        (Decoder FileListResponse)
+        (Result Error (Maybe String)
+         -> msg
+        )
     | CreateAppFolderResponse msg
 
 
@@ -350,9 +393,9 @@ getAppFolderId msg =
             (googleDriveRoute [ "files" ])
             [ string "q"
                 ("name = '"
-                    ++ appFolderName
+                    ++ specialFileNames.appFolder
                     ++ "' and mimeType = '"
-                    ++ googleMimeTypes.folder
+                    ++ mimeTypes.folder
                     ++ "'"
                 )
             ]
@@ -365,7 +408,10 @@ getAppFolderId msg =
 -- INTERNAL API
 
 
-findAppFoldersRequest : String -> (Result Http.Error FileListResponse -> msg) -> Cmd msg
+findAppFoldersRequest :
+    String
+    -> (Result Http.Error FileListResponse -> msg)
+    -> Cmd msg
 findAppFoldersRequest token msg =
     httpRequest
         { token = token
@@ -375,9 +421,9 @@ findAppFoldersRequest token msg =
                 (googleDriveRoute [ "files" ])
                 [ string "q"
                     ("name = '"
-                        ++ appFolderName
+                        ++ specialFileNames.appFolder
                         ++ "' and mimeType = '"
-                        ++ googleMimeTypes.folder
+                        ++ mimeTypes.folder
                         ++ "'"
                     )
                 , string "orderBy" "createdTime"
@@ -387,7 +433,10 @@ findAppFoldersRequest token msg =
         }
 
 
-createAppFolderRequest : String -> (Result Http.Error FileCreateResponse -> msg) -> Cmd msg
+createAppFolderRequest :
+    String
+    -> (Result Http.Error FileCreateResponse -> msg)
+    -> Cmd msg
 createAppFolderRequest token msg =
     httpRequest
         { token = token
@@ -396,11 +445,62 @@ createAppFolderRequest token msg =
         , body =
             Http.jsonBody
                 (fileCreateEncoder
-                    { name = appFolderName
-                    , mimeType = googleMimeTypes.folder
+                    { name = specialFileNames.appFolder
+                    , mimeType = mimeTypes.folder
+                    , parents = Nothing
                     }
                 )
         , expect = Http.expectJson msg fileCreateDecoder
+        }
+
+
+findMainSheetRequest :
+    String
+    -> String
+    -> (Result Http.Error FileListResponse -> msg)
+    -> Cmd msg
+findMainSheetRequest token appFolderId toMsg =
+    httpRequest
+        { token = token
+        , method = "GET"
+        , url =
+            googleUrl
+                (googleDriveRoute [ "files" ])
+                [ string "q"
+                    ("name = '"
+                        ++ specialFileNames.mainSheet
+                        ++ "' and mimeType = '"
+                        ++ mimeTypes.spreadsheet
+                        ++ "' and '"
+                        ++ appFolderId
+                        ++ "' in parents"
+                    )
+                , string "orderBy" "createdTime"
+                ]
+        , body = Http.emptyBody
+        , expect = Http.expectJson toMsg fileListResponseDecoder
+        }
+
+
+createMainSheetRequest :
+    String
+    -> String
+    -> (Result Http.Error FileCreateResponse -> msg)
+    -> Cmd msg
+createMainSheetRequest token appFolderId toMsg =
+    httpRequest
+        { token = token
+        , method = "POST"
+        , url = googleUrl (googleDriveRoute [ "files" ]) []
+        , body =
+            Http.jsonBody
+                (fileCreateEncoder
+                    { name = specialFileNames.mainSheet
+                    , mimeType = mimeTypes.spreadsheet
+                    , parents = Just [ appFolderId ]
+                    }
+                )
+        , expect = Http.expectJson toMsg fileCreateDecoder
         }
 
 
@@ -530,15 +630,24 @@ fileCreateDecoder =
 type alias FileCreate =
     { name : String
     , mimeType : String
+    , parents : Maybe (List String)
     }
 
 
 fileCreateEncoder : FileCreate -> Encode.Value
 fileCreateEncoder createFile =
-    Encode.object
-        [ ( "mimeType", Encode.string createFile.mimeType )
-        , ( "name", Encode.string createFile.name )
-        ]
+    Encode.object <|
+        List.concat
+            [ [ ( "mimeType", Encode.string createFile.mimeType )
+              , ( "name", Encode.string createFile.name )
+              ]
+            , case createFile.parents of
+                Just parents ->
+                    [ ( "parents", Encode.list Encode.string parents ) ]
+
+                Nothing ->
+                    []
+            ]
 
 
 
@@ -584,12 +693,15 @@ httpRequest { token, method, url, body, expect } =
 -- REUSED VALUES
 
 
-appFolderName : String
-appFolderName =
-    "SentenceBaseData"
+specialFileNames : { appFolder : String, mainSheet : String }
+specialFileNames =
+    { appFolder = "SentenceBaseData"
+    , mainSheet = "MainSheet"
+    }
 
 
-googleMimeTypes : { folder : String }
-googleMimeTypes =
+mimeTypes : { folder : String, spreadsheet : String }
+mimeTypes =
     { folder = "application/vnd.google-apps.folder"
+    , spreadsheet = "application/vnd.google-apps.spreadsheet"
     }
