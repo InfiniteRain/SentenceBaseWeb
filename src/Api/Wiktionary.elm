@@ -60,6 +60,7 @@ type Definitions
 usageResponseToDefinitions : String -> Bool -> UsageResponse -> Definitions
 usageResponseToDefinitions currentWord doFormLookup usage =
     List.map (definitionResponseToDefinition currentWord doFormLookup) usage.definitions
+        |> List.filter (\definition -> definition.text /= "")
         |> Definitions
 
 
