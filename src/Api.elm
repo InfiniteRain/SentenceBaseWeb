@@ -1,12 +1,12 @@
 module Api exposing (Action(..), mapAction)
 
-import Api.Google as Google
+import Api.Google.Requests as GoogleRequests
 import Api.Wiktionary as Wiktionary
 
 
 type Action msg
     = None
-    | Google (Google.RequestConfig msg)
+    | Google (GoogleRequests.Action msg)
     | Wiktionary (Wiktionary.RequestConfig msg)
 
 
@@ -16,16 +16,20 @@ mapAction map msg =
         None ->
             None
 
-        Google request ->
-            Google
-                { method = request.method
-                , url = request.url
-                , body = request.body
-                , expect = Google.mapExpect map request.expect
-                }
+        Google (GoogleRequests.Initialize rootMsg) ->
+            Google (GoogleRequests.Initialize <| map rootMsg)
+
+        Google (GoogleRequests.SendRequest request) ->
+            Google <|
+                GoogleRequests.SendRequest
+                    { method = request.method
+                    , url = request.url
+                    , body = request.body
+                    , expect = GoogleRequests.mapExpect map request.expect
+                    }
 
         Wiktionary request ->
             Wiktionary
                 { word = request.word
-                , toMsg = \result -> map (request.toMsg result)
+                , toMsg = \result -> map <| request.toMsg result
                 }

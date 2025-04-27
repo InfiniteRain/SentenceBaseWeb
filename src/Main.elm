@@ -2,10 +2,12 @@ module Main exposing (..)
 
 import Api exposing (Action(..))
 import Api.Google as Google exposing (Msg(..))
+import Api.Google.Requests as GoogleRequests
 import Api.Wiktionary as Wiktionary exposing (Msg(..))
 import Browser
 import Html exposing (Html)
 import OutMsg exposing (OutMsg)
+import Page.Login as Login exposing (Msg(..))
 import Page.Mining as Mining exposing (Msg(..))
 import Triple
 
@@ -36,7 +38,8 @@ type alias Model =
 
 
 type Page
-    = Mining Mining.Model
+    = Login Login.Model
+    | Mining Mining.Model
 
 
 init : () -> ( Model, Cmd Msg )
@@ -48,17 +51,17 @@ init _ =
         ( wiktionaryModel, wiktionaryCmd ) =
             Wiktionary.init ()
 
-        ( miningModel, miningCmd ) =
-            Mining.init ()
+        ( loginModel, loginCmd ) =
+            Login.init ()
     in
     ( { googleModel = googleModel
       , wiktionaryModel = wiktionaryModel
-      , page = Mining miningModel
+      , page = Login loginModel
       }
     , Cmd.batch
         [ Cmd.map GotGoogleMsg googleCmd
         , Cmd.map GotWiktionaryMsg wiktionaryCmd
-        , Cmd.map GotMiningMsg miningCmd
+        , Cmd.map GotLoginMsg loginCmd
         ]
     )
 
@@ -70,6 +73,7 @@ init _ =
 type Msg
     = GotGoogleMsg (Google.Msg Msg)
     | GotWiktionaryMsg (Wiktionary.Msg Msg)
+    | GotLoginMsg Login.Msg
     | GotMiningMsg Mining.Msg
 
 
@@ -88,9 +92,16 @@ update msg model =
                     (\wiktionaryModel -> { model | wiktionaryModel = wiktionaryModel })
                     GotWiktionaryMsg
 
+        ( GotLoginMsg subMsg, Login subModel ) ->
+            Login.update subMsg subModel
+                |> updateWithPage Login GotLoginMsg model
+
         ( GotMiningMsg subMsg, Mining subModel ) ->
             Mining.update subMsg subModel
                 |> updateWithPage Mining GotMiningMsg model
+
+        ( _, _ ) ->
+            ( model, Cmd.none )
 
 
 updateWithApi :
@@ -155,7 +166,10 @@ updateWithPage toPage toMsg model result =
 performApiAction : Model -> Api.Action Msg -> ( Model, Cmd Msg )
 performApiAction model action =
     case action of
-        Google request ->
+        Google (GoogleRequests.Initialize rootMsg) ->
+            update (GotGoogleMsg (Google.SentInitializeRequest rootMsg)) model
+
+        Google (GoogleRequests.SendRequest request) ->
             update (GotGoogleMsg (Google.SentRequest request)) model
 
         Wiktionary request ->
@@ -175,6 +189,9 @@ subscriptions model =
         [ Sub.map GotGoogleMsg (Google.subscriptions model.googleModel)
         , Sub.map GotWiktionaryMsg (Wiktionary.subscriptions model.wiktionaryModel)
         , case model.page of
+            Login subModel ->
+                Sub.none
+
             Mining subModel ->
                 Sub.map GotMiningMsg (Mining.subscriptions subModel)
         ]
@@ -187,5 +204,8 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
     case model.page of
+        Login subModel ->
+            Html.map GotLoginMsg (Login.view subModel)
+
         Mining subModel ->
             Html.map GotMiningMsg (Mining.view subModel)

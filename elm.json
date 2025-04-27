@@ -15,7 +15,8 @@
             "elm/regex": "1.0.0",
             "elm/url": "1.0.0",
             "garados007/triple": "1.0.0",
-            "hecrj/html-parser": "2.4.0"
+            "hecrj/html-parser": "2.4.0",
+            "justinmimbs/date": "4.1.0"
         },
         "indirect": {
             "elm/bytes": "1.0.8",
