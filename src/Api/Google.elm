@@ -1,5 +1,6 @@
 port module Api.Google exposing
-    ( Model
+    ( Action(..)
+    , Model
     , Msg(..)
     , init
     , subscriptions
@@ -7,6 +8,7 @@ port module Api.Google exposing
     )
 
 import Api.Google.Migration as Migration
+import Api.Google.ParamCmd exposing (ParamCmd)
 import Api.Google.Requests as Requests
 import Http
 import Json.Decode as Decode exposing (Decoder)
@@ -44,7 +46,7 @@ messageReceiver =
 
 type alias Model rootMsg =
     { state : State
-    , requestQueue : List (Requests.RequestConfig rootMsg)
+    , requestQueue : List (ParamCmd rootMsg)
     , initializeMsg : Maybe rootMsg
     , token : String
     , appFolderId : String
@@ -80,9 +82,8 @@ init _ =
 
 type Msg rootMsg
     = GotIncomingPortMsg (Result Decode.Error IncomingMsg)
-    | SentInitializeRequest rootMsg
-    | SentRequest (Requests.RequestConfig rootMsg)
-    | GotResponse (Result Http.Error String)
+    | SentAction (Action rootMsg)
+    | GotResponse rootMsg
     | GotFindAppFolderResponse (Result Http.Error Requests.DriveResponseFileList)
     | GotCreateAppFolderResponse (Result Http.Error Requests.DriveResponseFileCreate)
     | GotFindMainSheetResponse (Result Http.Error Requests.DriveResponseFileList)
@@ -96,16 +97,16 @@ update :
     -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
 update msg model =
     case ( model.state, msg ) of
-        ( Uninitialized, SentInitializeRequest rootMsg ) ->
+        ( Uninitialized, SentAction (Initialize rootMsg) ) ->
             ( { model | state = Initializing, initializeMsg = Just rootMsg }
             , messageSender InitializeRequest
             , None
             )
 
-        ( Uninitialized, SentRequest request ) ->
+        ( Uninitialized, SentAction (SendRequest paramCmd) ) ->
             ( { model
                 | state = Initializing
-                , requestQueue = model.requestQueue ++ [ request ]
+                , requestQueue = model.requestQueue ++ [ paramCmd ]
               }
             , messageSender InitializeRequest
             , None
@@ -186,10 +187,11 @@ update msg model =
                 Migration.Done ->
                     transitionToReady model
 
-        ( Ready, SentRequest request ) ->
-            ( { model | requestQueue = model.requestQueue ++ [ request ] }
+        ( Ready, SentAction (SendRequest paramCmd) ) ->
+            ( { model | requestQueue = model.requestQueue ++ [ paramCmd ] }
             , if List.isEmpty model.requestQueue then
-                sendRequest model.token request
+                paramCmd model.token model.mainSheetId
+                    |> Cmd.map GotResponse
 
               else
                 Cmd.none
@@ -198,33 +200,34 @@ update msg model =
 
         ( Ready, GotResponse response ) ->
             case model.requestQueue of
-                request :: [] ->
+                _ :: [] ->
                     ( { model | requestQueue = [] }
                     , Cmd.none
-                    , Single (Requests.decodeExpect request.expect response)
+                    , Single response
                     )
 
-                request :: rest ->
+                paramCmd :: rest ->
                     ( { model | requestQueue = rest }
-                    , sendRequest model.token request
-                    , Single (Requests.decodeExpect request.expect response)
+                    , paramCmd model.token model.mainSheetId
+                        |> Cmd.map GotResponse
+                    , Single response
                     )
 
                 [] ->
                     ( { model | state = Ready }, Cmd.none, None )
 
-        ( _, SentRequest request ) ->
-            ( { model | requestQueue = model.requestQueue ++ [ request ] }
+        ( _, SentAction (SendRequest paramCmd) ) ->
+            ( { model | requestQueue = model.requestQueue ++ [ paramCmd ] }
             , Cmd.none
             , None
             )
 
         ( _, GotResponse response ) ->
             case model.requestQueue of
-                request :: rest ->
+                _ :: rest ->
                     ( { model | requestQueue = rest }
                     , Cmd.none
-                    , Single (Requests.decodeExpect request.expect response)
+                    , Single response
                     )
 
                 [] ->
@@ -330,7 +333,8 @@ transitionToReady model =
     case model.requestQueue of
         request :: _ ->
             ( { model | state = Ready }
-            , sendRequest model.token request
+            , request model.token model.mainSheetId
+                |> Cmd.map GotResponse
             , model.initializeMsg
                 |> Maybe.map Single
                 |> Maybe.withDefault None
@@ -345,17 +349,6 @@ transitionToReady model =
             )
 
 
-sendRequest : String -> Requests.RequestConfig rootMsg -> Cmd (Msg rootMsg)
-sendRequest token request =
-    Requests.httpRequest
-        { token = token
-        , method = request.method
-        , url = request.url
-        , body = request.body
-        , expect = Http.expectString GotResponse
-        }
-
-
 
 -- SUBSCRIPTIONS
 
@@ -363,6 +356,15 @@ sendRequest token request =
 subscriptions : Model rootMsg -> Sub (Msg rootMsg)
 subscriptions _ =
     messageReceiver
+
+
+
+-- EXTERNAL API
+
+
+type Action msg
+    = Initialize msg
+    | SendRequest (ParamCmd msg)
 
 
 

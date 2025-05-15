@@ -1,9 +1,11 @@
 module Page.Login exposing (..)
 
-import Api exposing (Action(..))
+import Api.Action as Action exposing (Action(..))
+import Api.Google.ParamTask as ParamTask
 import Api.Google.Requests as GoogleRequests
 import Html exposing (Html, button, div, span, text)
 import Html.Events exposing (onClick)
+import Http
 
 
 
@@ -27,19 +29,37 @@ init _ =
 type Msg
     = AuthenticatePressed
     | AuthenticateCompleted
+    | TestRequestPressed
+    | TestRequestReceived (Result Http.Error GoogleRequests.DriveResponseFileList)
 
 
-update : Msg -> Model -> ( Model, Cmd Msg, Api.Action Msg )
+update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
 update msg model =
     case msg of
         AuthenticatePressed ->
             ( model
             , Cmd.none
-            , Google (GoogleRequests.Initialize AuthenticateCompleted)
+            , Action.googleInitialize AuthenticateCompleted
             )
 
         AuthenticateCompleted ->
-            ( Authenticated, Cmd.none, None )
+            ( Authenticated, Cmd.none, Action.none )
+
+        TestRequestPressed ->
+            ( model
+            , Cmd.none
+            , Action.google <|
+                ParamTask.attempt
+                    TestRequestReceived
+                    GoogleRequests.getAppFolderId
+            )
+
+        TestRequestReceived result ->
+            let
+                _ =
+                    Debug.log "result:" result
+            in
+            ( model, Cmd.none, Action.none )
 
 
 
@@ -54,5 +74,5 @@ view model =
             ]
 
          else
-            [ span [] [ text "Authenticated" ] ]
+            [ button [ onClick TestRequestPressed ] [ text "Send test request" ] ]
         )

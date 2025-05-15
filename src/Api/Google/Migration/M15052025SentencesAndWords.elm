@@ -68,7 +68,7 @@ update msg model =
 
 createSubSheetsTask : String -> String -> Task Http.Error ()
 createSubSheetsTask token sheetId =
-    Requests.sheetBatchUpdate
+    Requests.sheetBatchUpdateRequest
         token
         sheetId
         (List.concat

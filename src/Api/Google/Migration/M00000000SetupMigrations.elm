@@ -37,7 +37,7 @@ init token sheetId =
         }
     , initialTask =
         TaskCmd.attempt GotSubSheetDataResponse <|
-            Requests.getSubSheetData
+            Requests.getSubSheetDataRequest
                 token
                 sheetId
                 [ { sheetId = Constants.subSheetId Migrations
@@ -88,7 +88,7 @@ createMigrationsSubSheetEffect :
     -> EffectWithPayload Msg (Set String)
 createMigrationsSubSheetEffect token sheetId =
     Effect.task GotCreateMigrationsSubSheetResponse <|
-        Requests.sheetBatchUpdate
+        Requests.sheetBatchUpdateRequest
             token
             sheetId
             (Requests.addTableBatchUpdateRequests

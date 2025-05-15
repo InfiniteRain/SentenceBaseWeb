@@ -246,7 +246,7 @@ fillMigrationsRequest :
     -> Time.Posix
     -> Task Http.Error ()
 fillMigrationsRequest token sheetId migrationId date =
-    Requests.sheetBatchUpdate token
+    Requests.sheetBatchUpdateRequest token
         sheetId
         [ Requests.AppendCells
             { sheetId = Constants.subSheetId Migrations

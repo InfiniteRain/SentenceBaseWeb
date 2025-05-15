@@ -7,7 +7,6 @@ module Api.Wiktionary exposing
     , Msg(..)
     , RequestConfig
     , Usages(..)
-    , getDefinitions
     , init
     , subscriptions
     , update
@@ -376,13 +375,6 @@ subscriptions _ =
 type alias RequestConfig msg =
     { word : String
     , toMsg : Result Http.Error Usages -> msg
-    }
-
-
-getDefinitions : String -> (Result Http.Error Usages -> msg) -> RequestConfig msg
-getDefinitions word toMsg =
-    { word = word
-    , toMsg = toMsg
     }
 
 

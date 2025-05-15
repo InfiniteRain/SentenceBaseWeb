@@ -1,6 +1,6 @@
 port module Page.Mining exposing (..)
 
-import Api exposing (Action(..))
+import Api.Action as Action exposing (Action(..))
 import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
 import Html exposing (Html, br, button, div, li, span, text, ul)
 import Html.Attributes exposing (class)
@@ -52,7 +52,7 @@ type Msg
     | DefinitionFetched (Result Http.Error Wiktionary.Usages)
 
 
-update : Msg -> Model -> ( Model, Cmd Msg, Api.Action Msg )
+update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
 update msg model =
     case msg of
         ClipboardUpdated str ->
@@ -64,7 +64,7 @@ update msg model =
                 , selectedWord = Nothing
               }
             , Cmd.none
-            , None
+            , Action.none
             )
 
         WordSelected str ->
@@ -73,7 +73,7 @@ update msg model =
                 , pressed = model.pressed + 1
               }
             , Cmd.none
-            , Wiktionary (Wiktionary.getDefinitions str DefinitionFetched)
+            , Action.wiktionary DefinitionFetched str
             )
 
         DefinitionFetched result ->
@@ -84,7 +84,7 @@ update msg model =
                         , received = model.received + 1
                       }
                     , Cmd.none
-                    , None
+                    , Action.none
                     )
 
                 Err _ ->
@@ -93,7 +93,7 @@ update msg model =
                         , received = model.received + 1
                       }
                     , Cmd.none
-                    , None
+                    , Action.none
                     )
 
 

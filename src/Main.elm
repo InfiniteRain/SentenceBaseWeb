@@ -1,8 +1,7 @@
 module Main exposing (..)
 
-import Api exposing (Action(..))
+import Api.Action as Action exposing (Action)
 import Api.Google as Google exposing (Msg(..))
-import Api.Google.Requests as GoogleRequests
 import Api.Wiktionary as Wiktionary exposing (Msg(..))
 import Browser
 import Html exposing (Html)
@@ -89,7 +88,11 @@ update msg model =
         ( GotWiktionaryMsg subMsg, _ ) ->
             Wiktionary.update subMsg model.wiktionaryModel
                 |> updateWithApi
-                    (\wiktionaryModel -> { model | wiktionaryModel = wiktionaryModel })
+                    (\wiktionaryModel ->
+                        { model
+                            | wiktionaryModel = wiktionaryModel
+                        }
+                    )
                     GotWiktionaryMsg
 
         ( GotLoginMsg subMsg, Login subModel ) ->
@@ -112,7 +115,7 @@ updateWithApi :
 updateWithApi toModel toMsg result =
     result
         |> Triple.mapFirst toModel
-        |> (\( updatedModel, googleCmd, outMsg ) ->
+        |> (\( updatedModel, subMsg, outMsg ) ->
                 outMsg
                     |> OutMsg.toList
                     |> resolveOutMsgUpdates updatedModel Cmd.none
@@ -120,7 +123,7 @@ updateWithApi toModel toMsg result =
                         (\updateCmd ->
                             Cmd.batch
                                 [ updateCmd
-                                , Cmd.map toMsg googleCmd
+                                , Cmd.map toMsg subMsg
                                 ]
                         )
            )
@@ -144,14 +147,14 @@ updateWithPage :
     (subModel -> Page)
     -> (subMsg -> Msg)
     -> Model
-    -> ( subModel, Cmd subMsg, Api.Action subMsg )
+    -> ( subModel, Cmd subMsg, Action subMsg )
     -> ( Model, Cmd Msg )
 updateWithPage toPage toMsg model result =
     result
         |> Triple.mapFirst
             (\updatedSubModel -> { model | page = toPage updatedSubModel })
         |> (\( updatedSubModel, cmd, action ) ->
-                Api.mapAction toMsg action
+                Action.map toMsg action
                     |> performApiAction updatedSubModel
                     |> Tuple.mapSecond
                         (\googleActionCmd ->
@@ -163,20 +166,19 @@ updateWithPage toPage toMsg model result =
            )
 
 
-performApiAction : Model -> Api.Action Msg -> ( Model, Cmd Msg )
+performApiAction : Model -> Action Msg -> ( Model, Cmd Msg )
 performApiAction model action =
-    case action of
-        Google (GoogleRequests.Initialize rootMsg) ->
-            update (GotGoogleMsg (Google.SentInitializeRequest rootMsg)) model
-
-        Google (GoogleRequests.SendRequest request) ->
-            update (GotGoogleMsg (Google.SentRequest request)) model
-
-        Wiktionary request ->
-            update (GotWiktionaryMsg (Wiktionary.SentRequest request)) model
-
-        None ->
-            ( model, Cmd.none )
+    Action.match action
+        { onNone = ( model, Cmd.none )
+        , onGoogle =
+            \googleAction ->
+                update (GotGoogleMsg <| Google.SentAction googleAction) model
+        , onWiktionary =
+            \request ->
+                update
+                    (GotWiktionaryMsg <| Wiktionary.SentRequest request)
+                    model
+        }
 
 
 
@@ -187,7 +189,9 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ Sub.map GotGoogleMsg (Google.subscriptions model.googleModel)
-        , Sub.map GotWiktionaryMsg (Wiktionary.subscriptions model.wiktionaryModel)
+        , Sub.map
+            GotWiktionaryMsg
+            (Wiktionary.subscriptions model.wiktionaryModel)
         , case model.page of
             Login subModel ->
                 Sub.none

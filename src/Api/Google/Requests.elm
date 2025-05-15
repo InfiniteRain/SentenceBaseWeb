@@ -1,9 +1,6 @@
 module Api.Google.Requests exposing
-    ( Action(..)
-    , DriveResponseFileCreate
+    ( DriveResponseFileCreate
     , DriveResponseFileList
-    , Error
-    , RequestConfig
     , SheetRequestBatchUpdateKind(..)
     , SheetRequestDimension(..)
     , SheetRequestExtendedValue(..)
@@ -12,52 +9,23 @@ module Api.Google.Requests exposing
     , addTableBatchUpdateRequests
     , createAppFolderRequest
     , createMainSheetRequest
-    , decodeExpect
     , findAppFoldersRequest
     , findMainSheetRequest
-    , getSubSheetData
+    , getAppFolderId
+    , getSubSheetDataRequest
     , httpRequest
     , httpTask
-    , mapExpect
-    , sheetBatchUpdate
+    , sheetBatchUpdateExternalRequest
+    , sheetBatchUpdateRequest
     )
 
 import Api.Google.Constants as Constants exposing (MimeType(..), SpecialFile(..))
+import Api.Google.ParamTask exposing (ParamTask)
 import Http
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
 import Task exposing (Task)
 import Url.Builder exposing (QueryParameter, crossOrigin, string)
-
-
-
--- TYPES
-
-
-type Error
-    = HttpError Http.Error
-    | DecodeError Decode.Error
-
-
-type Expect msg
-    = GetAppFolderResponse
-        --
-        (Decoder DriveResponseFileList)
-        (Result Error (Maybe String) -> msg)
-    | CreateAppFolderResponse msg
-
-
-type Action msg
-    = Initialize msg
-    | SendRequest (RequestConfig msg)
-
-
-type alias RequestConfig msg =
-    { method : String
-    , url : String
-    , body : Http.Body
-    , expect : Expect msg
-    }
 
 
 
@@ -723,12 +691,12 @@ createMainSheetRequest token appFolderId =
         }
 
 
-getSubSheetData :
+getSubSheetDataRequest :
     String
     -> String
     -> List SheetRequestGridRange
     -> HttpTask SheetResponseGetSubSheetData
-getSubSheetData token sheetId ranges =
+getSubSheetDataRequest token sheetId ranges =
     httpTask
         { token = token
         , method = "POST"
@@ -751,12 +719,12 @@ getSubSheetData token sheetId ranges =
         }
 
 
-sheetBatchUpdate :
+sheetBatchUpdateRequest :
     String
     -> String
     -> List SheetRequestBatchUpdateKind
     -> HttpTask ()
-sheetBatchUpdate token sheetId kinds =
+sheetBatchUpdateRequest token sheetId kinds =
     httpTask
         { token = token
         , method = "POST"
@@ -776,63 +744,38 @@ sheetBatchUpdate token sheetId kinds =
 -- EXTERNAL API
 
 
-mapExpect : (a -> expect) -> Expect a -> Expect expect
-mapExpect map expect =
-    case expect of
-        GetAppFolderResponse decoder toMsg ->
-            GetAppFolderResponse decoder (\result -> map <| toMsg result)
-
-        CreateAppFolderResponse msg ->
-            CreateAppFolderResponse <| map msg
+type alias HttpParamTask response =
+    ParamTask Http.Error response
 
 
-decodeExpect : Expect msg -> Result Http.Error String -> msg
-decodeExpect expect result =
-    let
-        mappedResult =
-            Result.mapError HttpError result
-    in
-    case expect of
-        GetAppFolderResponse decoder map ->
-            decodeMappedResult mappedResult decoder
-                |> Result.map
-                    (\response ->
-                        List.head response.files
-                            |> Maybe.map (\file -> file.id)
-                    )
-                |> map
-
-        CreateAppFolderResponse msg ->
-            msg
-
-
-decodeMappedResult : Result Error String -> Decoder a -> Result Error a
-decodeMappedResult mappedResult decoder =
-    mappedResult
-        |> Result.andThen
-            (\str ->
-                Decode.decodeString decoder str
-                    |> Result.mapError DecodeError
-            )
+getAppFolderId : ParamTask Http.Error DriveResponseFileList
+getAppFolderId =
+    \token _ ->
+        httpTask
+            { token = token
+            , method = "GET"
+            , url =
+                googleUrl
+                    (googleDriveRoute [ "files" ])
+                    [ string "q"
+                        ("name = '"
+                            ++ Constants.specialFileName AppFolder
+                            ++ "' and mimeType = '"
+                            ++ Constants.mimeTypeName Folder
+                            ++ "'"
+                        )
+                    ]
+            , body = Http.emptyBody
+            , resolver = jsonResolver driveResponseFileListDecoder
+            }
 
 
-getAppFolderId : (Result Error (Maybe String) -> msg) -> RequestConfig msg
-getAppFolderId toMsg =
-    { method = "GET"
-    , url =
-        googleUrl
-            (googleDriveRoute [ "files" ])
-            [ string "q"
-                ("name = '"
-                    ++ Constants.specialFileName AppFolder
-                    ++ "' and mimeType = '"
-                    ++ Constants.mimeTypeName Folder
-                    ++ "'"
-                )
-            ]
-    , body = Http.emptyBody
-    , expect = GetAppFolderResponse driveResponseFileListDecoder toMsg
-    }
+sheetBatchUpdateExternalRequest :
+    List SheetRequestBatchUpdateKind
+    -> HttpParamTask ()
+sheetBatchUpdateExternalRequest kinds =
+    \token sheetId ->
+        sheetBatchUpdateRequest token sheetId kinds
 
 
 
