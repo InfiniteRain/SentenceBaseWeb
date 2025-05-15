@@ -6,16 +6,18 @@ module Api.Google.Migration exposing
     , update
     )
 
+import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Migration.Config exposing (Config)
 import Api.Google.Migration.Effect as Effect exposing (Effect, EffectInner(..))
 import Api.Google.Migration.M00000000SetupMigrations as SetupMigrations
-import Api.Google.Migration.M25042025Initial as Initial
+import Api.Google.Migration.M15052025SentencesAndWords as SentencesAndWords
 import Api.Google.Requests as Requests
 import Api.Google.TaskCmd as TaskCmd
-import Date
 import Http
+import Iso8601
 import Set
 import Task exposing (Task)
+import Time
 
 
 
@@ -23,23 +25,28 @@ import Task exposing (Task)
 
 
 type MigrationMsg
-    = GotInitialMsg Initial.Msg
+    = GotSentencesAndWordsMsg SentencesAndWords.Msg
 
 
 type MigrationModel
-    = Initial Initial.Model
+    = SentencesAndWords SentencesAndWords.Model
 
 
 updateMigration : MigrationMsg -> MigrationModel -> MigrationUpdate
 updateMigration msg model =
     case ( msg, model ) of
-        ( GotInitialMsg subMsg, Initial subModel ) ->
-            updateWith subMsg subModel Initial.update GotInitialMsg Initial
+        ( GotSentencesAndWordsMsg subMsg, SentencesAndWords subModel ) ->
+            updateWith
+                subMsg
+                subModel
+                SentencesAndWords.update
+                GotSentencesAndWordsMsg
+                SentencesAndWords
 
 
 queue : List (String -> String -> Migration)
 queue =
-    [ entry Initial.init GotInitialMsg Initial ]
+    [ entry SentencesAndWords.init GotSentencesAndWordsMsg SentencesAndWords ]
 
 
 
@@ -220,7 +227,7 @@ updateWith subMsg subModel updateFn toMsg toModel =
 
             Effect.Done _ ->
                 ( { model | migrationQueue = restMigrations }
-                , Date.today
+                , Time.now
                     |> Task.andThen
                         (fillMigrationsRequest
                             model.token
@@ -236,21 +243,21 @@ fillMigrationsRequest :
     String
     -> String
     -> String
-    -> Date.Date
+    -> Time.Posix
     -> Task Http.Error ()
 fillMigrationsRequest token sheetId migrationId date =
     Requests.sheetBatchUpdate token
         sheetId
         [ Requests.AppendCells
-            { sheetId = Requests.subSheetIds.migrations
+            { sheetId = Constants.subSheetId Migrations
             , rows =
                 [ { values =
                         [ { userEnteredValue =
-                                Requests.StringValue <|
-                                    Date.toIsoString date
+                                Requests.StringValue migrationId
                           }
                         , { userEnteredValue =
-                                Requests.StringValue migrationId
+                                Requests.StringValue <|
+                                    Iso8601.fromTime date
                           }
                         ]
                   }

@@ -5,6 +5,7 @@ module Api.Google.Migration.M00000000SetupMigrations exposing
     , update
     )
 
+import Api.Google.Constants as Constants exposing (Column(..), SubSheet(..))
 import Api.Google.Migration.Config as Config_
 import Api.Google.Migration.Effect as Effect exposing (EffectWithPayload)
 import Api.Google.Requests as Requests
@@ -39,11 +40,11 @@ init token sheetId =
             Requests.getSubSheetData
                 token
                 sheetId
-                [ { sheetId = Requests.subSheetIds.migrations
+                [ { sheetId = Constants.subSheetId Migrations
                   , startRowIndex = Just 1
                   , endRowIndex = Nothing
-                  , startColumnIndex = Just 1
-                  , endColumnIndex = Just 2
+                  , startColumnIndex = Just 0
+                  , endColumnIndex = Just 1
                   }
                 ]
     }
@@ -90,59 +91,14 @@ createMigrationsSubSheetEffect token sheetId =
         Requests.sheetBatchUpdate
             token
             sheetId
-            [ Requests.AddSheet
-                { properties =
-                    { sheetId = Just Requests.subSheetIds.migrations
-                    , title = Just Requests.subSheetNames.migrations
-                    , gridProperties =
-                        Just
-                            { frozenRowCount = Just 1
-                            , frozenColumnCount = Just 0
-                            }
-                    }
-                }
-            , Requests.UpdateCells
-                { rows =
-                    [ { values =
-                            [ { userEnteredValue =
-                                    Requests.StringValue "date"
-                              }
-                            , { userEnteredValue =
-                                    Requests.StringValue "name"
-                              }
-                            ]
-                      }
+            (Requests.addTableBatchUpdateRequests
+                { kind = Migrations
+                , columns =
+                    [ { kind = MigrationName, name = "name" }
+                    , { kind = DateTime, name = "applied_at" }
                     ]
-                , fields = "userEnteredValue"
-                , range =
-                    { sheetId = Requests.subSheetIds.migrations
-                    , startRowIndex = Just 0
-                    , startColumnIndex = Just 0
-                    , endRowIndex = Just 1
-                    , endColumnIndex = Just 2
-                    }
                 }
-            , Requests.SetDataValidation
-                { range =
-                    { sheetId = Requests.subSheetIds.migrations
-                    , startRowIndex = Just 1
-                    , endRowIndex = Nothing
-                    , startColumnIndex = Just 0
-                    , endColumnIndex = Just 2
-                    }
-                , rule =
-                    { condition =
-                        { type_ = "CUSTOM_FORMULA"
-                        , values =
-                            [ { userEnteredValue =
-                                    "=AND(ISDATE($A2),NOT(ISBLANK($B2)))"
-                              }
-                            ]
-                        }
-                    , strict = True
-                    }
-                }
-            ]
+            )
 
 
 extractAppliedMigrations : Requests.SheetResponseGetSubSheetData -> Set String

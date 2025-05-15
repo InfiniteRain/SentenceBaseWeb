@@ -5,9 +5,11 @@ module Api.Google.Requests exposing
     , Error
     , RequestConfig
     , SheetRequestBatchUpdateKind(..)
+    , SheetRequestDimension(..)
     , SheetRequestExtendedValue(..)
     , SheetResponseCellExtendedData(..)
     , SheetResponseGetSubSheetData
+    , addTableBatchUpdateRequests
     , createAppFolderRequest
     , createMainSheetRequest
     , decodeExpect
@@ -18,10 +20,9 @@ module Api.Google.Requests exposing
     , httpTask
     , mapExpect
     , sheetBatchUpdate
-    , subSheetIds
-    , subSheetNames
     )
 
+import Api.Google.Constants as Constants exposing (MimeType(..), SpecialFile(..))
 import Http
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
@@ -415,6 +416,54 @@ sheetRequestRowDataEncoder { values } =
         ]
 
 
+type SheetRequestDimension
+    = Unspecified
+    | Rows
+    | Columns
+
+
+sheetRequestDimensionEncoder : SheetRequestDimension -> Encode.Value
+sheetRequestDimensionEncoder dimension =
+    case dimension of
+        Unspecified ->
+            Encode.string "DIMENSION_UNSPECIFIED"
+
+        Rows ->
+            Encode.string "ROWS"
+
+        Columns ->
+            Encode.string "COLUMNS"
+
+
+type alias SheetRequestDimensionRange =
+    { sheetId : Int
+    , dimension : SheetRequestDimension
+    , startIndex : Int
+    , endIndex : Int
+    }
+
+
+sheetRequestDimensionRangeEncoder : SheetRequestDimensionRange -> Encode.Value
+sheetRequestDimensionRangeEncoder { sheetId, dimension, startIndex, endIndex } =
+    Encode.object
+        [ ( "sheetId", Encode.int sheetId )
+        , ( "dimension", sheetRequestDimensionEncoder dimension )
+        , ( "startIndex", Encode.int startIndex )
+        , ( "endIndex", Encode.int endIndex )
+        ]
+
+
+type alias SheetRequestDimensionProperties =
+    { pixelSize : Int }
+
+
+sheetRequestDimensionPropertiesEncoder :
+    SheetRequestDimensionProperties
+    -> Encode.Value
+sheetRequestDimensionPropertiesEncoder { pixelSize } =
+    Encode.object [ ( "pixelSize", Encode.int pixelSize ) ]
+
+
 type SheetRequestBatchUpdateKind
     = AddSheet
         { properties : SheetRequestProperties
@@ -432,6 +481,11 @@ type SheetRequestBatchUpdateKind
         { sheetId : Int
         , rows : List SheetRequestRowData
         , fields : String
+        }
+    | UpdateDimensionProperties
+        { properties : SheetRequestDimensionProperties
+        , fields : String
+        , range : SheetRequestDimensionRange
         }
 
 
@@ -478,6 +532,19 @@ sheetRequestBatchUpdateKindEncoder kind =
                           , Encode.list sheetRequestRowDataEncoder rows
                           )
                         , ( "fields", Encode.string fields )
+                        ]
+                  )
+                ]
+
+            UpdateDimensionProperties { properties, fields, range } ->
+                [ ( "updateDimensionProperties"
+                  , Encode.object
+                        [ ( "properties"
+                          , sheetRequestDimensionPropertiesEncoder
+                                properties
+                          )
+                        , ( "fields", Encode.string fields )
+                        , ( "range", sheetRequestDimensionRangeEncoder range )
                         ]
                   )
                 ]
@@ -585,9 +652,9 @@ findAppFoldersRequest token =
                 (googleDriveRoute [ "files" ])
                 [ string "q"
                     ("name = '"
-                        ++ specialFileNames.appFolder
+                        ++ Constants.specialFileName AppFolder
                         ++ "' and mimeType = '"
-                        ++ mimeTypes.folder
+                        ++ Constants.mimeTypeName Folder
                         ++ "'"
                     )
                 , string "orderBy" "createdTime"
@@ -606,8 +673,8 @@ createAppFolderRequest token =
         , body =
             Http.jsonBody <|
                 driveRequestCreateFileEncoder
-                    { name = specialFileNames.appFolder
-                    , mimeType = mimeTypes.folder
+                    { name = Constants.specialFileName AppFolder
+                    , mimeType = Constants.mimeTypeName Folder
                     , parents = Nothing
                     }
         , resolver = jsonResolver driveResponseFileCreateDecoder
@@ -624,9 +691,9 @@ findMainSheetRequest token appFolderId =
                 (googleDriveRoute [ "files" ])
                 [ string "q"
                     ("name = '"
-                        ++ specialFileNames.mainSheet
+                        ++ Constants.specialFileName MainSheet
                         ++ "' and mimeType = '"
-                        ++ mimeTypes.spreadsheet
+                        ++ Constants.mimeTypeName SpreadSheet
                         ++ "' and '"
                         ++ appFolderId
                         ++ "' in parents"
@@ -647,8 +714,8 @@ createMainSheetRequest token appFolderId =
         , body =
             Http.jsonBody
                 (driveRequestCreateFileEncoder
-                    { name = specialFileNames.mainSheet
-                    , mimeType = mimeTypes.spreadsheet
+                    { name = Constants.specialFileName MainSheet
+                    , mimeType = Constants.mimeTypeName SpreadSheet
                     , parents = Just [ appFolderId ]
                     }
                 )
@@ -757,9 +824,9 @@ getAppFolderId toMsg =
             (googleDriveRoute [ "files" ])
             [ string "q"
                 ("name = '"
-                    ++ specialFileNames.appFolder
+                    ++ Constants.specialFileName AppFolder
                     ++ "' and mimeType = '"
-                    ++ mimeTypes.folder
+                    ++ Constants.mimeTypeName Folder
                     ++ "'"
                 )
             ]
@@ -812,29 +879,108 @@ maybeEncoder ( key, maybe, encoder ) =
 
 
 
--- REUSED VALUES
+-- BUILDERS
 
 
-subSheetNames : { migrations : String }
-subSheetNames =
-    { migrations = "migrations" }
-
-
-subSheetIds : { migrations : Int }
-subSheetIds =
-    { migrations = 100
+type alias TableConfig =
+    { kind : Constants.SubSheet
+    , columns : List ColumnConfig
     }
 
 
-specialFileNames : { appFolder : String, mainSheet : String }
-specialFileNames =
-    { appFolder = "SentenceBaseData"
-    , mainSheet = "MainSheet"
+type alias ColumnConfig =
+    { kind : Constants.Column
+    , name : String
     }
 
 
-mimeTypes : { folder : String, spreadsheet : String }
-mimeTypes =
-    { folder = "application/vnd.google-apps.folder"
-    , spreadsheet = "application/vnd.google-apps.spreadsheet"
-    }
+addTableBatchUpdateRequests : TableConfig -> List SheetRequestBatchUpdateKind
+addTableBatchUpdateRequests { kind, columns } =
+    List.concat
+        [ [ AddSheet
+                { properties =
+                    { sheetId = Just <| Constants.subSheetId kind
+                    , title = Just <| Constants.subSheetName kind
+                    , gridProperties =
+                        Just
+                            { frozenRowCount = Just 1
+                            , frozenColumnCount = Just 0
+                            }
+                    }
+                }
+          , UpdateCells
+                { rows =
+                    [ { values =
+                            List.map
+                                (\{ name } ->
+                                    { userEnteredValue = StringValue name }
+                                )
+                                columns
+                      }
+                    ]
+                , fields = "userEnteredValue"
+                , range =
+                    { sheetId = Constants.subSheetId kind
+                    , startRowIndex = Just 0
+                    , startColumnIndex = Just 0
+                    , endRowIndex = Just 1
+                    , endColumnIndex = Just <| List.length columns
+                    }
+                }
+          , SetDataValidation
+                { range =
+                    { sheetId = Constants.subSheetId kind
+                    , startRowIndex = Just 1
+                    , endRowIndex = Nothing
+                    , startColumnIndex = Just 0
+                    , endColumnIndex = Just <| List.length columns
+                    }
+                , rule =
+                    { condition =
+                        { type_ = "CUSTOM_FORMULA"
+                        , values =
+                            [ { userEnteredValue = validationFormula columns
+                              }
+                            ]
+                        }
+                    , strict = True
+                    }
+                }
+          ]
+        , List.indexedMap
+            (\index column ->
+                UpdateDimensionProperties
+                    { properties =
+                        { pixelSize =
+                            Constants.columnSize column.kind
+                        }
+                    , fields = "pixelSize"
+                    , range =
+                        { sheetId = Constants.subSheetId kind
+                        , dimension = Columns
+                        , startIndex = index
+                        , endIndex = index + 1
+                        }
+                    }
+            )
+            columns
+        ]
+
+
+validationFormula : List ColumnConfig -> String
+validationFormula columns =
+    "=AND("
+        ++ (String.join "," <|
+                List.indexedMap
+                    (\index _ ->
+                        "NOT(ISBLANK($"
+                            ++ (Char.toCode 'A'
+                                    + index
+                                    |> Char.fromCode
+                                    |> String.fromChar
+                               )
+                            ++ "2))"
+                    )
+                    columns
+           )
+        ++ ")"
