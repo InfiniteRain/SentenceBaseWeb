@@ -37,7 +37,7 @@ type alias Model rootMsg =
 
 type State
     = Ready
-    | Resolving Usages (List String)
+    | ResolvingForm Usages (List String)
 
 
 type Usages
@@ -161,7 +161,7 @@ update msg model =
                         ( putToCache
                             request.word
                             result
-                            { model | state = Resolving usages (getFormWords usages) }
+                            { model | state = ResolvingForm usages (getFormWords usages) }
                         , getDefinitionsInternal formWord
                         , None
                         )
@@ -173,7 +173,7 @@ update msg model =
                             request.word
                             result
                             { model | requestQueue = restRequests }
-                        , Cmd.none
+                        , sendRequest nextRequest
                         , Single <| request.toMsg (Ok usages)
                         )
 
@@ -202,13 +202,13 @@ update msg model =
                     , Single <| request.toMsg (Err err)
                     )
 
-        ( Resolving _ _, SentRequest request, _ ) ->
+        ( ResolvingForm _ _, SentRequest request, _ ) ->
             ( { model | requestQueue = model.requestQueue ++ [ request ] }
             , Cmd.none
             , None
             )
 
-        ( Resolving usages (formWord :: restFormWords), ReceivedResponse ((Ok response) as result), request :: restRequests ) ->
+        ( ResolvingForm usages (formWord :: restFormWords), ReceivedResponse ((Ok response) as result), request :: restRequests ) ->
             let
                 formWordUsages =
                     responseToUsages formWord False response
@@ -223,7 +223,7 @@ update msg model =
                         ( putToCache
                             formWord
                             result
-                            { model | state = Resolving newUsages restFormWords }
+                            { model | state = ResolvingForm newUsages restFormWords }
                         , getDefinitionsInternal nextFormWord
                         , None
                         )
@@ -248,12 +248,12 @@ update msg model =
                     , Single <| request.toMsg (Ok newUsages)
                     )
 
-        ( Resolving usages (_ :: restFormWords), ReceivedResponse (Err err), request :: restRequests ) ->
+        ( ResolvingForm usages (_ :: restFormWords), ReceivedResponse (Err err), request :: restRequests ) ->
             case ( restFormWords, restRequests ) of
                 ( nextFormWord :: _, _ ) ->
                     getFromCacheOrUpdate
                         nextFormWord
-                        ( { model | state = Resolving usages restFormWords }
+                        ( { model | state = ResolvingForm usages restFormWords }
                         , getDefinitionsInternal nextFormWord
                         , None
                         )
@@ -272,7 +272,7 @@ update msg model =
                     , Single <| request.toMsg (Err err)
                     )
 
-        ( Resolving _ [], ReceivedResponse result, _ ) ->
+        ( ResolvingForm _ [], ReceivedResponse result, _ ) ->
             let
                 _ =
                     Debug.log "received response with an empty form word queue" result
