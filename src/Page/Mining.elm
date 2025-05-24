@@ -8,6 +8,7 @@ import Html.Events exposing (onClick)
 import Http
 import Regex
 import RegexExtra
+import Session exposing (Session)
 
 
 
@@ -22,7 +23,8 @@ port clipboardPort : (String -> msg) -> Sub msg
 
 
 type alias Model =
-    { sentenceWords : List String
+    { session : Session
+    , sentenceWords : List String
     , selectedWord : Maybe String
     , definition : Maybe Usages
     , pressed : Int
@@ -30,9 +32,10 @@ type alias Model =
     }
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
-    ( { sentenceWords = []
+init : Session -> ( Model, Cmd Msg )
+init session =
+    ( { session = session
+      , sentenceWords = []
       , selectedWord = Nothing
       , definition = Nothing
       , pressed = 0
@@ -110,28 +113,31 @@ subscriptions _ =
 -- VIEW
 
 
-view : Model -> Html Msg
+view : Model -> { title : String, content : Html Msg }
 view model =
-    div
-        []
-        (List.concat
-            [ List.map (\word -> button [ onClick (WordSelected (String.toLower word)) ] [ text word ]) model.sentenceWords
-            , model.selectedWord
-                |> Maybe.map
-                    (\word ->
-                        [ br [] []
-                        , span [] [ text word ]
-                        ]
-                    )
-                |> Maybe.withDefault []
-            , [ br [] [] ]
-            , model.definition
-                |> Maybe.map (\definition -> [ usagesView definition ])
-                |> Maybe.withDefault []
-            , [ span [] [ text <| "pressed: " ++ String.fromInt model.pressed ++ ", received " ++ String.fromInt model.received ]
-              ]
-            ]
-        )
+    { title = "Mining"
+    , content =
+        div
+            []
+            (List.concat
+                [ List.map (\word -> button [ onClick (WordSelected (String.toLower word)) ] [ text word ]) model.sentenceWords
+                , model.selectedWord
+                    |> Maybe.map
+                        (\word ->
+                            [ br [] []
+                            , span [] [ text word ]
+                            ]
+                        )
+                    |> Maybe.withDefault []
+                , [ br [] [] ]
+                , model.definition
+                    |> Maybe.map (\definition -> [ usagesView definition ])
+                    |> Maybe.withDefault []
+                , [ span [] [ text <| "pressed: " ++ String.fromInt model.pressed ++ ", received " ++ String.fromInt model.received ]
+                  ]
+                ]
+            )
+    }
 
 
 usagesView : Wiktionary.Usages -> Html Msg

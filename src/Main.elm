@@ -4,11 +4,15 @@ import Api.Action as Action exposing (Action)
 import Api.Google as Google exposing (Msg(..))
 import Api.Wiktionary as Wiktionary exposing (Msg(..))
 import Browser
+import Browser.Navigation as Nav
 import Html exposing (Html)
 import OutMsg exposing (OutMsg)
-import Page.Login as Login exposing (Msg(..))
+import Page.Auth as Auth exposing (Msg(..))
 import Page.Mining as Mining exposing (Msg(..))
+import Route exposing (Route(..))
+import Session exposing (Session)
 import Triple
+import Url exposing (Url)
 
 
 
@@ -17,11 +21,13 @@ import Triple
 
 main : Program () Model Msg
 main =
-    Browser.element
+    Browser.application
         { init = init
         , view = view
         , update = update
         , subscriptions = subscriptions
+        , onUrlChange = UrlChanged
+        , onUrlRequest = LinkClicked
         }
 
 
@@ -37,12 +43,12 @@ type alias Model =
 
 
 type Page
-    = Login Login.Model
+    = Auth Auth.Model
     | Mining Mining.Model
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
+init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
+init _ _ navKey =
     let
         ( googleModel, googleCmd ) =
             Google.init ()
@@ -50,19 +56,49 @@ init _ =
         ( wiktionaryModel, wiktionaryCmd ) =
             Wiktionary.init ()
 
-        ( loginModel, loginCmd ) =
-            Login.init ()
+        session =
+            Session.create navKey
+
+        ( authModel, authCmd ) =
+            Auth.init session
     in
     ( { googleModel = googleModel
       , wiktionaryModel = wiktionaryModel
-      , page = Login loginModel
+      , page = Auth authModel
       }
     , Cmd.batch
         [ Cmd.map GotGoogleMsg googleCmd
         , Cmd.map GotWiktionaryMsg wiktionaryCmd
-        , Cmd.map GotLoginMsg loginCmd
+        , Cmd.map GotAuthMsg authCmd
+        , Route.navigate navKey Route.Auth
         ]
     )
+
+
+routeToPage : Maybe Route -> Session -> ( Page, Cmd Msg )
+routeToPage maybeRoute session =
+    case maybeRoute of
+        Just Route.Auth ->
+            Auth.init session
+                |> Tuple.mapBoth Auth (Cmd.map GotAuthMsg)
+
+        Just Route.Mining ->
+            Mining.init session
+                |> Tuple.mapBoth Mining (Cmd.map GotMiningMsg)
+
+        Nothing ->
+            Auth.init session
+                |> Tuple.mapBoth Auth (Cmd.map GotAuthMsg)
+
+
+pageToSession : Page -> Session
+pageToSession page =
+    case page of
+        Auth model ->
+            model.session
+
+        Mining model ->
+            model.session
 
 
 
@@ -70,15 +106,39 @@ init _ =
 
 
 type Msg
-    = GotGoogleMsg (Google.Msg Msg)
+    = UrlChanged Url
+    | LinkClicked Browser.UrlRequest
+    | GotGoogleMsg (Google.Msg Msg)
     | GotWiktionaryMsg (Wiktionary.Msg Msg)
-    | GotLoginMsg Login.Msg
+    | GotAuthMsg Auth.Msg
     | GotMiningMsg Mining.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
+    let
+        session =
+            pageToSession model.page
+    in
     case ( msg, model.page ) of
+        ( UrlChanged url, _ ) ->
+            routeToPage (Route.fromUrl url) session
+                |> Tuple.mapFirst (\page -> { model | page = page })
+
+        ( LinkClicked urlRequest, _ ) ->
+            case urlRequest of
+                Browser.Internal url ->
+                    ( model
+                    , Nav.pushUrl
+                        (Session.navKey session)
+                        (Url.toString url)
+                    )
+
+                Browser.External href ->
+                    ( model
+                    , Nav.load href
+                    )
+
         ( GotGoogleMsg subMsg, _ ) ->
             Google.update subMsg model.googleModel
                 |> updateWithApi
@@ -89,15 +149,13 @@ update msg model =
             Wiktionary.update subMsg model.wiktionaryModel
                 |> updateWithApi
                     (\wiktionaryModel ->
-                        { model
-                            | wiktionaryModel = wiktionaryModel
-                        }
+                        { model | wiktionaryModel = wiktionaryModel }
                     )
                     GotWiktionaryMsg
 
-        ( GotLoginMsg subMsg, Login subModel ) ->
-            Login.update subMsg subModel
-                |> updateWithPage Login GotLoginMsg model
+        ( GotAuthMsg subMsg, Auth subModel ) ->
+            Auth.update subMsg subModel
+                |> updateWithPage Auth GotAuthMsg model
 
         ( GotMiningMsg subMsg, Mining subModel ) ->
             Mining.update subMsg subModel
@@ -193,7 +251,7 @@ subscriptions model =
             GotWiktionaryMsg
             (Wiktionary.subscriptions model.wiktionaryModel)
         , case model.page of
-            Login subModel ->
+            Auth subModel ->
                 Sub.none
 
             Mining subModel ->
@@ -205,11 +263,26 @@ subscriptions model =
 -- VIEW
 
 
-view : Model -> Html Msg
+view : Model -> Browser.Document Msg
 view model =
     case model.page of
-        Login subModel ->
-            Html.map GotLoginMsg (Login.view subModel)
+        Auth subModel ->
+            pageView GotAuthMsg Auth.view subModel
 
         Mining subModel ->
-            Html.map GotMiningMsg (Mining.view subModel)
+            pageView GotMiningMsg Mining.view subModel
+
+
+pageView :
+    (subMsg -> Msg)
+    -> (subModel -> { title : String, content : Html subMsg })
+    -> subModel
+    -> Browser.Document Msg
+pageView toMsg viewFn subModel =
+    let
+        { title, content } =
+            viewFn subModel
+    in
+    { title = title
+    , body = [ Html.map toMsg content ]
+    }
