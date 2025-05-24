@@ -3,6 +3,10 @@ module RegexExtra exposing (newLines, space, tag)
 import Regex exposing (Regex)
 
 
+
+-- HELPERS
+
+
 regex : String -> Regex
 regex str =
     Regex.fromString str

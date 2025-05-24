@@ -1,11 +1,19 @@
-module Api.Google.ParamTask exposing (ParamTask, andThen, attempt)
+module Api.Google.ParamTask exposing (ParamTask, andThen, attempt, fromTask)
 
 import Api.Google.ParamCmd exposing (ParamCmd)
 import Task exposing (Task)
 
 
+
+-- TYPES
+
+
 type alias ParamTask error value =
     String -> String -> Task error value
+
+
+
+-- HELPERS
 
 
 fromTask : Task error value -> ParamTask error value

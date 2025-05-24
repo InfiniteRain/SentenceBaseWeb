@@ -14,49 +14,18 @@ import Api.Wiktionary as Wiktionary
 import Http
 
 
+
+-- TYPES
+
+
 type Action msg
     = None
     | Google (Google.Action msg)
     | Wiktionary (Wiktionary.RequestConfig msg)
 
 
-map : (a -> msg) -> Action a -> Action msg
-map toMsg msg =
-    case msg of
-        None ->
-            None
 
-        Google (Initialize rootMsg) ->
-            Google (Initialize <| toMsg rootMsg)
-
-        Google (SendRequest paramCmd) ->
-            Google (SendRequest <| ParamCmd.map toMsg paramCmd)
-
-        Wiktionary request ->
-            Wiktionary
-                { word = request.word
-                , toMsg = request.toMsg >> toMsg
-                }
-
-
-match :
-    Action msg
-    ->
-        { onNone : a
-        , onGoogle : Google.Action msg -> a
-        , onWiktionary : Wiktionary.RequestConfig msg -> a
-        }
-    -> a
-match action { onNone, onGoogle, onWiktionary } =
-    case action of
-        None ->
-            onNone
-
-        Google googleAction ->
-            onGoogle googleAction
-
-        Wiktionary request ->
-            onWiktionary request
+-- CONSTRUCTORS
 
 
 none : Action msg
@@ -80,3 +49,50 @@ wiktionary :
     -> Action msg
 wiktionary toMsg word =
     Wiktionary <| { word = word, toMsg = toMsg }
+
+
+
+-- ACCESSORS
+
+
+match :
+    Action msg
+    ->
+        { onNone : a
+        , onGoogle : Google.Action msg -> a
+        , onWiktionary : Wiktionary.RequestConfig msg -> a
+        }
+    -> a
+match action { onNone, onGoogle, onWiktionary } =
+    case action of
+        None ->
+            onNone
+
+        Google googleAction ->
+            onGoogle googleAction
+
+        Wiktionary request ->
+            onWiktionary request
+
+
+
+-- TRANSFORMERS
+
+
+map : (a -> msg) -> Action a -> Action msg
+map toMsg msg =
+    case msg of
+        None ->
+            None
+
+        Google (Initialize rootMsg) ->
+            Google (Initialize <| toMsg rootMsg)
+
+        Google (SendRequest paramCmd) ->
+            Google (SendRequest <| ParamCmd.map toMsg paramCmd)
+
+        Wiktionary request ->
+            Wiktionary
+                { word = request.word
+                , toMsg = request.toMsg >> toMsg
+                }

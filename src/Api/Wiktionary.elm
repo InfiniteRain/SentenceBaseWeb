@@ -137,13 +137,13 @@ update msg model =
                 request.word
                 ( { model | requestQueue = model.requestQueue ++ [ request ] }
                 , sendRequest request
-                , None
+                , OutMsg.none
                 )
 
         ( Ready, SentRequest request, _ ) ->
             ( { model | requestQueue = model.requestQueue ++ [ request ] }
             , Cmd.none
-            , None
+            , OutMsg.none
             )
 
         ( Ready, ReceivedResponse ((Ok response) as result), request :: restRequests ) ->
@@ -163,7 +163,7 @@ update msg model =
                             result
                             { model | state = ResolvingForm usages (getFormWords usages) }
                         , getDefinitionsInternal formWord
-                        , None
+                        , OutMsg.none
                         )
 
                 ( [], nextRequest :: _ ) ->
@@ -174,7 +174,7 @@ update msg model =
                             result
                             { model | requestQueue = restRequests }
                         , sendRequest nextRequest
-                        , Single <| request.toMsg (Ok usages)
+                        , OutMsg.some <| request.toMsg (Ok usages)
                         )
 
                 ( [], [] ) ->
@@ -183,7 +183,7 @@ update msg model =
                         result
                         { model | requestQueue = [] }
                     , Cmd.none
-                    , Single <| request.toMsg (Ok usages)
+                    , OutMsg.some <| request.toMsg (Ok usages)
                     )
 
         ( Ready, ReceivedResponse (Err err), request :: restRequests ) ->
@@ -193,19 +193,19 @@ update msg model =
                         nextRequest.word
                         ( { model | requestQueue = restRequests }
                         , sendRequest nextRequest
-                        , Single <| request.toMsg (Err err)
+                        , OutMsg.some <| request.toMsg (Err err)
                         )
 
                 [] ->
                     ( { model | requestQueue = [] }
                     , Cmd.none
-                    , Single <| request.toMsg (Err err)
+                    , OutMsg.some <| request.toMsg (Err err)
                     )
 
         ( ResolvingForm _ _, SentRequest request, _ ) ->
             ( { model | requestQueue = model.requestQueue ++ [ request ] }
             , Cmd.none
-            , None
+            , OutMsg.none
             )
 
         ( ResolvingForm usages (formWord :: restFormWords), ReceivedResponse ((Ok response) as result), request :: restRequests ) ->
@@ -225,7 +225,7 @@ update msg model =
                             result
                             { model | state = ResolvingForm newUsages restFormWords }
                         , getDefinitionsInternal nextFormWord
-                        , None
+                        , OutMsg.none
                         )
 
                 ( [], nextRequest :: _ ) ->
@@ -236,7 +236,7 @@ update msg model =
                             result
                             { model | state = Ready, requestQueue = restRequests }
                         , sendRequest nextRequest
-                        , Single <| request.toMsg (Ok newUsages)
+                        , OutMsg.some <| request.toMsg (Ok newUsages)
                         )
 
                 ( [], [] ) ->
@@ -245,7 +245,7 @@ update msg model =
                         result
                         { model | state = Ready, requestQueue = [] }
                     , Cmd.none
-                    , Single <| request.toMsg (Ok newUsages)
+                    , OutMsg.some <| request.toMsg (Ok newUsages)
                     )
 
         ( ResolvingForm usages (_ :: restFormWords), ReceivedResponse (Err err), request :: restRequests ) ->
@@ -255,7 +255,7 @@ update msg model =
                         nextFormWord
                         ( { model | state = ResolvingForm usages restFormWords }
                         , getDefinitionsInternal nextFormWord
-                        , None
+                        , OutMsg.none
                         )
 
                 ( [], nextRequest :: _ ) ->
@@ -263,13 +263,13 @@ update msg model =
                         nextRequest.word
                         ( { model | state = Ready, requestQueue = restRequests }
                         , sendRequest nextRequest
-                        , Single <| request.toMsg (Err err)
+                        , OutMsg.some <| request.toMsg (Err err)
                         )
 
                 ( [], [] ) ->
                     ( { model | state = Ready, requestQueue = [] }
                     , Cmd.none
-                    , Single <| request.toMsg (Err err)
+                    , OutMsg.some <| request.toMsg (Err err)
                     )
 
         ( ResolvingForm _ [], ReceivedResponse result, _ ) ->
@@ -277,14 +277,14 @@ update msg model =
                 _ =
                     Debug.log "received response with an empty form word queue" result
             in
-            ( { model | state = Ready }, Cmd.none, None )
+            ( { model | state = Ready }, Cmd.none, OutMsg.none )
 
         ( _, ReceivedResponse result, [] ) ->
             let
                 _ =
                     Debug.log "received response with an empty queue" result
             in
-            ( { model | state = Ready }, Cmd.none, None )
+            ( { model | state = Ready }, Cmd.none, OutMsg.none )
 
 
 sendRequest : RequestConfig rootMsg -> Cmd (Msg rootMsg)

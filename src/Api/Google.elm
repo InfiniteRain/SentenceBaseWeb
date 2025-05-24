@@ -100,7 +100,7 @@ update msg model =
         ( Uninitialized, SentAction (Initialize rootMsg) ) ->
             ( { model | state = Initializing, initializeMsg = Just rootMsg }
             , messageSender InitializeRequest
-            , None
+            , OutMsg.none
             )
 
         ( Uninitialized, SentAction (SendRequest paramCmd) ) ->
@@ -109,7 +109,7 @@ update msg model =
                 , requestQueue = model.requestQueue ++ [ paramCmd ]
               }
             , messageSender InitializeRequest
-            , None
+            , OutMsg.none
             )
 
         ( SettingUpAppFolder, GotFindAppFolderResponse (Ok response) ) ->
@@ -120,7 +120,7 @@ update msg model =
                         Requests.findMainSheetRequest
                             model.token
                             file.id
-                    , None
+                    , OutMsg.none
                     )
 
                 [] ->
@@ -128,11 +128,11 @@ update msg model =
                     , Task.attempt GotCreateAppFolderResponse <|
                         Requests.createAppFolderRequest
                             model.token
-                    , None
+                    , OutMsg.none
                     )
 
         ( SettingUpAppFolder, GotFindAppFolderResponse (Err _) ) ->
-            ( { model | state = Uninitialized }, Cmd.none, None )
+            ( { model | state = Uninitialized }, Cmd.none, OutMsg.none )
 
         ( SettingUpAppFolder, GotCreateAppFolderResponse (Ok response) ) ->
             ( { model | appFolderId = response.id }
@@ -140,11 +140,11 @@ update msg model =
                 Requests.createMainSheetRequest
                     model.token
                     response.id
-            , None
+            , OutMsg.none
             )
 
         ( SettingUpAppFolder, GotCreateAppFolderResponse (Err _) ) ->
-            ( { model | state = Uninitialized }, Cmd.none, None )
+            ( { model | state = Uninitialized }, Cmd.none, OutMsg.none )
 
         ( SettingUpAppFolder, GotFindMainSheetResponse (Ok response) ) ->
             case response.files of
@@ -157,17 +157,17 @@ update msg model =
                         Requests.createMainSheetRequest
                             model.token
                             model.appFolderId
-                    , None
+                    , OutMsg.none
                     )
 
         ( SettingUpAppFolder, GotFindMainSheetResponse (Err _) ) ->
-            ( { model | state = Uninitialized }, Cmd.none, None )
+            ( { model | state = Uninitialized }, Cmd.none, OutMsg.none )
 
         ( SettingUpAppFolder, GotCreateMainSheetResponse (Ok response) ) ->
             transitionToMigrating { model | mainSheetId = response.id }
 
         ( SettingUpAppFolder, GotCreateMainSheetResponse (Err _) ) ->
-            ( { model | state = Uninitialized }, Cmd.none, None )
+            ( { model | state = Uninitialized }, Cmd.none, OutMsg.none )
 
         ( Migrating migrationModel, GotMigrationMsg migrationMsg ) ->
             let
@@ -178,11 +178,11 @@ update msg model =
                 Migration.None ->
                     ( { model | state = Migrating newMigrationModel }
                     , Cmd.map GotMigrationMsg migrationCmd
-                    , None
+                    , OutMsg.none
                     )
 
                 Migration.Fail _ ->
-                    ( { model | state = Uninitialized }, Cmd.none, None )
+                    ( { model | state = Uninitialized }, Cmd.none, OutMsg.none )
 
                 Migration.Done ->
                     transitionToReady model
@@ -195,7 +195,7 @@ update msg model =
 
               else
                 Cmd.none
-            , None
+            , OutMsg.none
             )
 
         ( Ready, GotResponse response ) ->
@@ -203,23 +203,23 @@ update msg model =
                 _ :: [] ->
                     ( { model | requestQueue = [] }
                     , Cmd.none
-                    , Single response
+                    , OutMsg.some response
                     )
 
                 paramCmd :: rest ->
                     ( { model | requestQueue = rest }
                     , paramCmd model.token model.mainSheetId
                         |> Cmd.map GotResponse
-                    , Single response
+                    , OutMsg.some response
                     )
 
                 [] ->
-                    ( { model | state = Ready }, Cmd.none, None )
+                    ( { model | state = Ready }, Cmd.none, OutMsg.none )
 
         ( _, SentAction (SendRequest paramCmd) ) ->
             ( { model | requestQueue = model.requestQueue ++ [ paramCmd ] }
             , Cmd.none
-            , None
+            , OutMsg.none
             )
 
         ( _, GotResponse response ) ->
@@ -227,11 +227,11 @@ update msg model =
                 _ :: rest ->
                     ( { model | requestQueue = rest }
                     , Cmd.none
-                    , Single response
+                    , OutMsg.some response
                     )
 
                 [] ->
-                    ( { model | state = Ready }, Cmd.none, None )
+                    ( { model | state = Ready }, Cmd.none, OutMsg.none )
 
         ( _, GotIncomingPortMsg portMsg ) ->
             case portMsg of
@@ -247,11 +247,11 @@ update msg model =
                     in
                     ( model
                     , Cmd.none
-                    , None
+                    , OutMsg.none
                     )
 
         ( _, _ ) ->
-            ( model, Cmd.none, None )
+            ( model, Cmd.none, OutMsg.none )
 
 
 handleIncomingPortMsg :
@@ -263,7 +263,7 @@ handleIncomingPortMsg msg model =
         ( Initializing, InitializedResponse ) ->
             ( { model | state = Authenticating }
             , messageSender AuthenticateRequest
-            , None
+            , OutMsg.none
             )
 
         ( Initializing, InitializeFailedResponse err ) ->
@@ -273,7 +273,7 @@ handleIncomingPortMsg msg model =
             in
             ( { model | state = Uninitialized }
             , Cmd.none
-            , None
+            , OutMsg.none
             )
 
         ( Authenticating, AuthenticateResponse res ) ->
@@ -283,7 +283,7 @@ handleIncomingPortMsg msg model =
               }
             , Task.attempt GotFindAppFolderResponse <|
                 Requests.findAppFoldersRequest res.token
-            , None
+            , OutMsg.none
             )
 
         ( Authenticating, AuthenticateFailedResponse err ) ->
@@ -293,7 +293,7 @@ handleIncomingPortMsg msg model =
             in
             ( { model | state = Uninitialized }
             , Cmd.none
-            , None
+            , OutMsg.none
             )
 
         ( Authenticating, InteractionRequiredResponse ) ->
@@ -308,7 +308,7 @@ handleIncomingPortMsg msg model =
             in
             ( model
             , Cmd.none
-            , None
+            , OutMsg.none
             )
 
 
@@ -322,7 +322,7 @@ transitionToMigrating model =
     in
     ( { model | state = Migrating migrationModel }
     , Cmd.map GotMigrationMsg migrationCmd
-    , None
+    , OutMsg.none
     )
 
 
@@ -336,16 +336,16 @@ transitionToReady model =
             , request model.token model.mainSheetId
                 |> Cmd.map GotResponse
             , model.initializeMsg
-                |> Maybe.map Single
-                |> Maybe.withDefault None
+                |> Maybe.map OutMsg.some
+                |> Maybe.withDefault OutMsg.none
             )
 
         [] ->
             ( { model | state = Ready }
             , Cmd.none
             , model.initializeMsg
-                |> Maybe.map Single
-                |> Maybe.withDefault None
+                |> Maybe.map OutMsg.some
+                |> Maybe.withDefault OutMsg.none
             )
 
 
