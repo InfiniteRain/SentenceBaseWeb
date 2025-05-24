@@ -6,7 +6,6 @@ module Api.Google.Migration.M15052025SentencesAndWords exposing
     , update
     )
 
-import Api.Google.Constants exposing (Column(..), SubSheet(..))
 import Api.Google.Migration.Config as Config_
 import Api.Google.Migration.Effect as Effect exposing (Effect)
 import Api.Google.Requests as Requests
@@ -71,38 +70,65 @@ createSubSheetsTask token sheetId =
     Requests.sheetBatchUpdateRequest
         token
         sheetId
-        (List.concat
-            [ Requests.addTableBatchUpdateRequests
-                { kind = PendingSentences
-                , columns =
-                    [ { kind = Word, name = "word" }
-                    , { kind = Sentence, name = "sentence" }
-                    , { kind = DateTime, name = "added_at" }
+        (Requests.addSubSheetRequests columnSize
+            [ { id = 200
+              , name = "pending_sentences"
+              , columns =
+                    [ ( "word", Word )
+                    , ( "sentence", Sentence )
+                    , ( "added_at", DateTime )
                     ]
-                }
-            , Requests.addTableBatchUpdateRequests
-                { kind = MinedSentences
-                , columns =
-                    [ { kind = Word, name = "word" }
-                    , { kind = Sentence, name = "sentence" }
-                    , { kind = Id, name = "batch_id" }
-                    , { kind = DateTime, name = "mined_at" }
+              }
+            , { id = 300
+              , name = "mined_sentences"
+              , columns =
+                    [ ( "word", Word )
+                    , ( "sentence", Sentence )
+                    , ( "batch_id", Id )
+                    , ( "mined_at", DateTime )
                     ]
-                }
-            , Requests.addTableBatchUpdateRequests
-                { kind = MinedWords
-                , columns =
-                    [ { kind = Word, name = "word" }
-                    , { kind = DateTime, name = "mined_at" }
+              }
+            , { id = 400
+              , name = "mined_words"
+              , columns =
+                    [ ( "word", Word )
+                    , ( "mined_at", DateTime )
                     ]
-                }
-            , Requests.addTableBatchUpdateRequests
-                { kind = BacklogSentences
-                , columns =
-                    [ { kind = Word, name = "word" }
-                    , { kind = Sentence, name = "sentence" }
-                    , { kind = DateTime, name = "backlogged_at" }
+              }
+            , { id = 500
+              , name = "backlog_sentences"
+              , columns =
+                    [ ( "word", Word )
+                    , ( "sentence", Sentence )
+                    , ( "backlogged_at", DateTime )
                     ]
-                }
+              }
             ]
         )
+
+
+
+-- CONSTANTS
+
+
+type Column
+    = DateTime
+    | Word
+    | Sentence
+    | Id
+
+
+columnSize : Column -> Int
+columnSize column =
+    case column of
+        DateTime ->
+            200
+
+        Word ->
+            100
+
+        Sentence ->
+            500
+
+        Id ->
+            75

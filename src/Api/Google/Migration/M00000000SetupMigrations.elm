@@ -5,7 +5,7 @@ module Api.Google.Migration.M00000000SetupMigrations exposing
     , update
     )
 
-import Api.Google.Constants as Constants exposing (Column(..), SubSheet(..))
+import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Migration.Config as Config_
 import Api.Google.Migration.Effect as Effect exposing (EffectWithPayload)
 import Api.Google.Requests as Requests
@@ -91,13 +91,15 @@ createMigrationsSubSheetEffect token sheetId =
         Requests.sheetBatchUpdateRequest
             token
             sheetId
-            (Requests.addTableBatchUpdateRequests
-                { kind = Migrations
-                , columns =
-                    [ { kind = MigrationName, name = "name" }
-                    , { kind = DateTime, name = "applied_at" }
-                    ]
-                }
+            (Requests.addSubSheetRequests columnSize
+                [ { id = 100
+                  , name = "migrations"
+                  , columns =
+                        [ ( "name", MigrationName )
+                        , ( "applied_at", DateTime )
+                        ]
+                  }
+                ]
             )
 
 
@@ -126,3 +128,22 @@ extractAppliedMigrations sheetData =
             )
         |> List.filterMap identity
         |> Set.fromList
+
+
+
+-- CONSTANTS
+
+
+type Column
+    = MigrationName
+    | DateTime
+
+
+columnSize : Column -> Int
+columnSize column =
+    case column of
+        MigrationName ->
+            150
+
+        DateTime ->
+            200

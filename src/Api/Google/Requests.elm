@@ -6,7 +6,7 @@ module Api.Google.Requests exposing
     , SheetRequestExtendedValue(..)
     , SheetResponseCellExtendedData(..)
     , SheetResponseGetSubSheetData
-    , addTableBatchUpdateRequests
+    , addSubSheetRequests
     , createAppFolderRequest
     , createMainSheetRequest
     , findAppFoldersRequest
@@ -825,92 +825,98 @@ maybeEncoder ( key, maybe, encoder ) =
 -- BUILDERS
 
 
-type alias TableConfig =
-    { kind : Constants.SubSheet
-    , columns : List ColumnConfig
-    }
-
-
-type alias ColumnConfig =
-    { kind : Constants.Column
+type alias SubSheet column =
+    { id : Int
     , name : String
+    , columns : List ( String, column )
     }
 
 
-addTableBatchUpdateRequests : TableConfig -> List SheetRequestBatchUpdateKind
-addTableBatchUpdateRequests { kind, columns } =
+addSubSheetRequests :
+    (column -> Int)
+    -> List (SubSheet column)
+    -> List SheetRequestBatchUpdateKind
+addSubSheetRequests columnSize subSheets =
     List.concat
-        [ [ AddSheet
-                { properties =
-                    { sheetId = Just <| Constants.subSheetId kind
-                    , title = Just <| Constants.subSheetName kind
-                    , gridProperties =
-                        Just
-                            { frozenRowCount = Just 1
-                            , frozenColumnCount = Just 0
-                            }
-                    }
-                }
-          , UpdateCells
-                { rows =
-                    [ { values =
-                            List.map
-                                (\{ name } ->
-                                    { userEnteredValue = StringValue name }
-                                )
-                                columns
-                      }
-                    ]
-                , fields = "userEnteredValue"
-                , range =
-                    { sheetId = Constants.subSheetId kind
-                    , startRowIndex = Just 0
-                    , startColumnIndex = Just 0
-                    , endRowIndex = Just 1
-                    , endColumnIndex = Just <| List.length columns
-                    }
-                }
-          , SetDataValidation
-                { range =
-                    { sheetId = Constants.subSheetId kind
-                    , startRowIndex = Just 1
-                    , endRowIndex = Nothing
-                    , startColumnIndex = Just 0
-                    , endColumnIndex = Just <| List.length columns
-                    }
-                , rule =
-                    { condition =
-                        { type_ = "CUSTOM_FORMULA"
-                        , values =
-                            [ { userEnteredValue = validationFormula columns
-                              }
-                            ]
-                        }
-                    , strict = True
-                    }
-                }
-          ]
-        , List.indexedMap
-            (\index column ->
-                UpdateDimensionProperties
+        [ List.concatMap
+            (\subSheet ->
+                [ AddSheet
                     { properties =
-                        { pixelSize =
-                            Constants.columnSize column.kind
-                        }
-                    , fields = "pixelSize"
-                    , range =
-                        { sheetId = Constants.subSheetId kind
-                        , dimension = Columns
-                        , startIndex = index
-                        , endIndex = index + 1
+                        { sheetId = Just subSheet.id
+                        , title = Just subSheet.name
+                        , gridProperties =
+                            Just
+                                { frozenRowCount = Just 1
+                                , frozenColumnCount = Just 0
+                                }
                         }
                     }
+                , UpdateCells
+                    { rows =
+                        [ { values =
+                                List.map
+                                    (\( name, _ ) ->
+                                        { userEnteredValue = StringValue name }
+                                    )
+                                    subSheet.columns
+                          }
+                        ]
+                    , fields = "userEnteredValue"
+                    , range =
+                        { sheetId = subSheet.id
+                        , startRowIndex = Just 0
+                        , startColumnIndex = Just 0
+                        , endRowIndex = Just 1
+                        , endColumnIndex = Just <| List.length subSheet.columns
+                        }
+                    }
+                , SetDataValidation
+                    { range =
+                        { sheetId = subSheet.id
+                        , startRowIndex = Just 1
+                        , endRowIndex = Nothing
+                        , startColumnIndex = Just 0
+                        , endColumnIndex = Just <| List.length subSheet.columns
+                        }
+                    , rule =
+                        { condition =
+                            { type_ = "CUSTOM_FORMULA"
+                            , values =
+                                [ { userEnteredValue =
+                                        validationFormula subSheet.columns
+                                  }
+                                ]
+                            }
+                        , strict = True
+                        }
+                    }
+                ]
             )
-            columns
+            subSheets
+        , List.concatMap
+            (\subSheet ->
+                List.indexedMap
+                    (\index ( _, column ) ->
+                        UpdateDimensionProperties
+                            { properties =
+                                { pixelSize = columnSize column
+                                }
+                            , fields = "pixelSize"
+                            , range =
+                                { sheetId = subSheet.id
+                                , dimension = Columns
+                                , startIndex = index
+                                , endIndex = index + 1
+                                }
+                            }
+                    )
+                    subSheet.columns
+            )
+            subSheets
         ]
 
 
-validationFormula : List ColumnConfig -> String
+validationFormula : List ( String, column ) -> String
 validationFormula columns =
     "=AND("
         ++ (String.join "," <|

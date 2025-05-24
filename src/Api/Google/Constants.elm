@@ -1,45 +1,11 @@
 module Api.Google.Constants exposing
-    ( Column(..)
-    , MimeType(..)
+    ( MimeType(..)
     , SpecialFile(..)
     , SubSheet(..)
-    , columnSize
     , mimeTypeName
     , specialFileName
     , subSheetId
-    , subSheetName
     )
-
--- COLUMN CONSTANTS
-
-
-type Column
-    = MigrationName
-    | DateTime
-    | Word
-    | Sentence
-    | Id
-
-
-columnSize : Column -> Int
-columnSize column =
-    case column of
-        MigrationName ->
-            150
-
-        DateTime ->
-            200
-
-        Word ->
-            100
-
-        Sentence ->
-            500
-
-        Id ->
-            75
-
-
 
 -- SUB SHEET CONSTANTS
 
@@ -50,25 +16,6 @@ type SubSheet
     | MinedSentences
     | MinedWords
     | BacklogSentences
-
-
-subSheetName : SubSheet -> String
-subSheetName subSheet =
-    case subSheet of
-        Migrations ->
-            "migrations"
-
-        PendingSentences ->
-            "pending_sentences"
-
-        MinedSentences ->
-            "mined_sentences"
-
-        MinedWords ->
-            "mined_words"
-
-        BacklogSentences ->
-            "backlog_sentences"
 
 
 subSheetId : SubSheet -> Int
