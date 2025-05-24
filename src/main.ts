@@ -42,6 +42,7 @@ type OutgoingMessage =
 type Ports = {
   messageSenderPort: ElmReceivePort<IncomingMessage>;
   messageReceiverPort: ElmSendPort<OutgoingMessage>;
+  requestClipboardUpdatePort: ElmReceivePort<void>;
   clipboardPort: ElmSendPort<string>;
 };
 
@@ -186,5 +187,9 @@ const clipboardSnapshot = async () => {
     setTimeout(clipboardSnapshot, clipboardInterval);
   }
 };
+
+app.ports.requestClipboardUpdatePort.subscribe(() => {
+  lastText = null;
+});
 
 clipboardSnapshot();

@@ -18,6 +18,9 @@ import Session exposing (Session)
 port clipboardPort : (String -> msg) -> Sub msg
 
 
+port requestClipboardUpdatePort : () -> Cmd msg
+
+
 
 -- MODEL
 
@@ -41,7 +44,7 @@ init session =
       , pressed = 0
       , received = 0
       }
-    , Cmd.none
+    , requestClipboardUpdatePort ()
     )
 
 
