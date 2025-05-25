@@ -748,7 +748,7 @@ type alias HttpParamTask response =
     ParamTask Http.Error response
 
 
-getAppFolderId : ParamTask Http.Error DriveResponseFileList
+getAppFolderId : HttpParamTask DriveResponseFileList
 getAppFolderId =
     \token _ ->
         httpTask
