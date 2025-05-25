@@ -30,7 +30,7 @@ type alias ApiModel =
     }
 
 
-updateApi : ApiMsg -> ApiModel -> ApiUpdate
+updateApi : ApiMsg -> ApiModel -> Update
 updateApi apiMsg apiModel =
     case apiMsg of
         GotGoogleMsg subMsg ->
@@ -70,18 +70,97 @@ initApi =
 
 
 
+-- PAGE SETUP
+
+
+type PageMsg
+    = GotAuthMsg Auth.Msg
+    | GotMiningMsg Mining.Msg
+
+
+type PageModel
+    = Auth Auth.Model
+    | Mining Mining.Model
+
+
+updatePage : PageMsg -> PageModel -> Update
+updatePage pageMsg pageModel =
+    case ( pageMsg, pageModel ) of
+        ( GotAuthMsg subMsg, Auth subModel ) ->
+            updateWithPage
+                subMsg
+                subModel
+                Auth.update
+                GotAuthMsg
+                Auth
+
+        ( GotMiningMsg subMsg, Mining subModel ) ->
+            updateWithPage
+                subMsg
+                subModel
+                Mining.update
+                GotMiningMsg
+                Mining
+
+        _ ->
+            let
+                _ =
+                    Debug.log
+                        "invalid page update combination"
+                        ( pageMsg, pageModel )
+            in
+            \model -> ( model, Cmd.none )
+
+
+routeToPage : Maybe Route -> Session -> ( PageModel, Cmd Msg )
+routeToPage maybeRoute session =
+    case maybeRoute of
+        Just Route.Auth ->
+            initAuth session
+
+        Just Route.Mining ->
+            initPageWith
+                session
+                Mining.init
+                GotMiningMsg
+                Mining
+
+        Nothing ->
+            initAuth session
+
+
+pageToSession : PageModel -> Session
+pageToSession page =
+    case page of
+        Auth model ->
+            model.session
+
+        Mining model ->
+            model.session
+
+
+initAuth : Session -> ( PageModel, Cmd Msg )
+initAuth session =
+    initPageWith
+        session
+        Auth.init
+        GotAuthMsg
+        Auth
+
+
+initPage : Session -> ( PageModel, Cmd Msg )
+initPage session =
+    initAuth session
+
+
+
 -- MODEL
 
 
 type alias Model =
     { api : ApiModel
-    , page : Page
+    , page : PageModel
     }
-
-
-type Page
-    = Auth Auth.Model
-    | Mining Mining.Model
 
 
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
@@ -93,15 +172,15 @@ init _ _ navKey =
         session =
             Session.create navKey
 
-        ( authModel, authCmd ) =
-            Auth.init session
+        ( pageModel, pageCmd ) =
+            initPage session
     in
     ( { api = apiModel
-      , page = Auth authModel
+      , page = pageModel
       }
     , Cmd.batch
         [ apiCmd
-        , Cmd.map GotAuthMsg authCmd
+        , pageCmd
         , Route.navigate navKey Route.Auth
         ]
     )
@@ -112,30 +191,15 @@ initApiCmd toApiMsg cmd =
     Cmd.map (GotApiMsg << toApiMsg) cmd
 
 
-routeToPage : Maybe Route -> Session -> ( Page, Cmd Msg )
-routeToPage maybeRoute session =
-    case maybeRoute of
-        Just Route.Auth ->
-            Auth.init session
-                |> Tuple.mapBoth Auth (Cmd.map GotAuthMsg)
-
-        Just Route.Mining ->
-            Mining.init session
-                |> Tuple.mapBoth Mining (Cmd.map GotMiningMsg)
-
-        Nothing ->
-            Auth.init session
-                |> Tuple.mapBoth Auth (Cmd.map GotAuthMsg)
-
-
-pageToSession : Page -> Session
-pageToSession page =
-    case page of
-        Auth model ->
-            model.session
-
-        Mining model ->
-            model.session
+initPageWith :
+    Session
+    -> (Session -> ( model, Cmd msg ))
+    -> (msg -> PageMsg)
+    -> (model -> PageModel)
+    -> ( PageModel, Cmd Msg )
+initPageWith session initFn toMsg toModel =
+    initFn session
+        |> Tuple.mapBoth toModel (Cmd.map (GotPageMsg << toMsg))
 
 
 
@@ -146,8 +210,7 @@ type Msg
     = UrlChanged Url
     | LinkClicked Browser.UrlRequest
     | GotApiMsg ApiMsg
-    | GotAuthMsg Auth.Msg
-    | GotMiningMsg Mining.Msg
+    | GotPageMsg PageMsg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -178,16 +241,8 @@ update msg model =
         ( GotApiMsg apiMsg, _ ) ->
             updateApi apiMsg model.api model
 
-        ( GotAuthMsg subMsg, Auth subModel ) ->
-            Auth.update subMsg subModel
-                |> updateWithPage Auth GotAuthMsg model
-
-        ( GotMiningMsg subMsg, Mining subModel ) ->
-            Mining.update subMsg subModel
-                |> updateWithPage Mining GotMiningMsg model
-
-        ( _, _ ) ->
-            ( model, Cmd.none )
+        ( GotPageMsg pageMsg, pageModel ) ->
+            updatePage pageMsg pageModel model
 
 
 resolveOutMsgUpdates : Model -> Cmd Msg -> List Msg -> ( Model, Cmd Msg )
@@ -227,30 +282,7 @@ performApiAction model action =
         }
 
 
-updateWithPage :
-    (subModel -> Page)
-    -> (subMsg -> Msg)
-    -> Model
-    -> ( subModel, Cmd subMsg, Action subMsg )
-    -> ( Model, Cmd Msg )
-updateWithPage toPage toMsg model result =
-    result
-        |> Triple.mapFirst
-            (\updatedSubModel -> { model | page = toPage updatedSubModel })
-        |> (\( updatedSubModel, cmd, action ) ->
-                Action.map toMsg action
-                    |> performApiAction updatedSubModel
-                    |> Tuple.mapSecond
-                        (\googleActionCmd ->
-                            Cmd.batch
-                                [ googleActionCmd
-                                , Cmd.map toMsg cmd
-                                ]
-                        )
-           )
-
-
-type alias ApiUpdate =
+type alias Update =
     Model -> ( Model, Cmd Msg )
 
 
@@ -260,19 +292,46 @@ updateWithApi :
     -> (msg -> model -> ( model, Cmd msg, OutMsg Msg ))
     -> (msg -> ApiMsg)
     -> (model -> ApiModel)
-    -> ApiUpdate
+    -> Update
 updateWithApi subMsg subModel updateFn toMsg toModel model =
     updateFn subMsg subModel
-        |> Triple.mapFirst (\m -> { model | api = toModel m })
-        |> (\( updatedModel, msg, outMsg ) ->
+        |> Triple.mapFirst
+            (\newSubModel -> { model | api = toModel newSubModel })
+        |> (\( newModel, msg, outMsg ) ->
                 outMsg
                     |> OutMsg.toList
-                    |> resolveOutMsgUpdates updatedModel Cmd.none
+                    |> resolveOutMsgUpdates newModel Cmd.none
                     |> Tuple.mapSecond
                         (\updateCmd ->
                             Cmd.batch
                                 [ updateCmd
                                 , Cmd.map (GotApiMsg << toMsg) msg
+                                ]
+                        )
+           )
+
+
+updateWithPage :
+    msg
+    -> model
+    -> (msg -> model -> ( model, Cmd msg, Action msg ))
+    -> (msg -> PageMsg)
+    -> (model -> PageModel)
+    -> Update
+updateWithPage subMsg subModel updateFn toMsg toModel model =
+    updateFn subMsg subModel
+        |> Triple.mapFirst
+            (\updatedSubModel ->
+                { model | page = toModel updatedSubModel }
+            )
+        |> (\( newModel, cmd, action ) ->
+                Action.map (GotPageMsg << toMsg) action
+                    |> performApiAction newModel
+                    |> Tuple.mapSecond
+                        (\googleActionCmd ->
+                            Cmd.batch
+                                [ googleActionCmd
+                                , Cmd.map (GotPageMsg << toMsg) cmd
                                 ]
                         )
            )
@@ -296,7 +355,9 @@ subscriptions model =
                 Sub.none
 
             Mining subModel ->
-                Sub.map GotMiningMsg (Mining.subscriptions subModel)
+                Sub.map
+                    (GotPageMsg << GotMiningMsg)
+                    (Mining.subscriptions subModel)
         ]
 
 
@@ -308,10 +369,10 @@ view : Model -> Browser.Document Msg
 view model =
     case model.page of
         Auth subModel ->
-            pageView GotAuthMsg Auth.view subModel
+            pageView (GotPageMsg << GotAuthMsg) Auth.view subModel
 
         Mining subModel ->
-            pageView GotMiningMsg Mining.view subModel
+            pageView (GotPageMsg << GotMiningMsg) Mining.view subModel
 
 
 pageView :
