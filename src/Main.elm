@@ -16,19 +16,57 @@ import Url exposing (Url)
 
 
 
--- MAIN
+-- API SETUP
 
 
-main : Program () Model Msg
-main =
-    Browser.application
-        { init = init
-        , view = view
-        , update = update
-        , subscriptions = subscriptions
-        , onUrlChange = UrlChanged
-        , onUrlRequest = LinkClicked
-        }
+type ApiMsg
+    = GotGoogleMsg (Google.Msg Msg)
+    | GotWiktionaryMsg (Wiktionary.Msg Msg)
+
+
+type alias ApiModel =
+    { google : Google.Model Msg
+    , wiktionary : Wiktionary.Model Msg
+    }
+
+
+updateApi : ApiMsg -> ApiModel -> ApiUpdate
+updateApi apiMsg apiModel =
+    case apiMsg of
+        GotGoogleMsg subMsg ->
+            updateWithApi
+                subMsg
+                apiModel.google
+                Google.update
+                GotGoogleMsg
+                (\model -> { apiModel | google = model })
+
+        GotWiktionaryMsg subMsg ->
+            updateWithApi
+                subMsg
+                apiModel.wiktionary
+                Wiktionary.update
+                GotWiktionaryMsg
+                (\model -> { apiModel | wiktionary = model })
+
+
+initApi : ( ApiModel, Cmd Msg )
+initApi =
+    let
+        ( googleModel, googleCmd ) =
+            Google.init ()
+
+        ( wiktionaryModel, wiktionaryCmd ) =
+            Wiktionary.init ()
+    in
+    ( { google = googleModel
+      , wiktionary = wiktionaryModel
+      }
+    , Cmd.batch
+        [ initApiCmd GotGoogleMsg googleCmd
+        , initApiCmd GotWiktionaryMsg wiktionaryCmd
+        ]
+    )
 
 
 
@@ -36,8 +74,7 @@ main =
 
 
 type alias Model =
-    { googleModel : Google.Model Msg
-    , wiktionaryModel : Wiktionary.Model Msg
+    { api : ApiModel
     , page : Page
     }
 
@@ -50,11 +87,8 @@ type Page
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ _ navKey =
     let
-        ( googleModel, googleCmd ) =
-            Google.init ()
-
-        ( wiktionaryModel, wiktionaryCmd ) =
-            Wiktionary.init ()
+        ( apiModel, apiCmd ) =
+            initApi
 
         session =
             Session.create navKey
@@ -62,17 +96,20 @@ init _ _ navKey =
         ( authModel, authCmd ) =
             Auth.init session
     in
-    ( { googleModel = googleModel
-      , wiktionaryModel = wiktionaryModel
+    ( { api = apiModel
       , page = Auth authModel
       }
     , Cmd.batch
-        [ Cmd.map GotGoogleMsg googleCmd
-        , Cmd.map GotWiktionaryMsg wiktionaryCmd
+        [ apiCmd
         , Cmd.map GotAuthMsg authCmd
         , Route.navigate navKey Route.Auth
         ]
     )
+
+
+initApiCmd : (msg -> ApiMsg) -> Cmd msg -> Cmd Msg
+initApiCmd toApiMsg cmd =
+    Cmd.map (GotApiMsg << toApiMsg) cmd
 
 
 routeToPage : Maybe Route -> Session -> ( Page, Cmd Msg )
@@ -108,8 +145,7 @@ pageToSession page =
 type Msg
     = UrlChanged Url
     | LinkClicked Browser.UrlRequest
-    | GotGoogleMsg (Google.Msg Msg)
-    | GotWiktionaryMsg (Wiktionary.Msg Msg)
+    | GotApiMsg ApiMsg
     | GotAuthMsg Auth.Msg
     | GotMiningMsg Mining.Msg
 
@@ -139,19 +175,8 @@ update msg model =
                     , Nav.load href
                     )
 
-        ( GotGoogleMsg subMsg, _ ) ->
-            Google.update subMsg model.googleModel
-                |> updateWithApi
-                    (\googleModel -> { model | googleModel = googleModel })
-                    GotGoogleMsg
-
-        ( GotWiktionaryMsg subMsg, _ ) ->
-            Wiktionary.update subMsg model.wiktionaryModel
-                |> updateWithApi
-                    (\wiktionaryModel ->
-                        { model | wiktionaryModel = wiktionaryModel }
-                    )
-                    GotWiktionaryMsg
+        ( GotApiMsg apiMsg, _ ) ->
+            updateApi apiMsg model.api model
 
         ( GotAuthMsg subMsg, Auth subModel ) ->
             Auth.update subMsg subModel
@@ -163,28 +188,6 @@ update msg model =
 
         ( _, _ ) ->
             ( model, Cmd.none )
-
-
-updateWithApi :
-    (subModel -> Model)
-    -> (subMsg -> Msg)
-    -> ( subModel, Cmd subMsg, OutMsg Msg )
-    -> ( Model, Cmd Msg )
-updateWithApi toModel toMsg result =
-    result
-        |> Triple.mapFirst toModel
-        |> (\( updatedModel, subMsg, outMsg ) ->
-                outMsg
-                    |> OutMsg.toList
-                    |> resolveOutMsgUpdates updatedModel Cmd.none
-                    |> Tuple.mapSecond
-                        (\updateCmd ->
-                            Cmd.batch
-                                [ updateCmd
-                                , Cmd.map toMsg subMsg
-                                ]
-                        )
-           )
 
 
 resolveOutMsgUpdates : Model -> Cmd Msg -> List Msg -> ( Model, Cmd Msg )
@@ -199,6 +202,29 @@ resolveOutMsgUpdates model cmd msgs =
 
         [] ->
             ( model, cmd )
+
+
+performApiAction : Model -> Action Msg -> ( Model, Cmd Msg )
+performApiAction model action =
+    Action.match action
+        { onNone = ( model, Cmd.none )
+        , onGoogle =
+            \googleAction ->
+                update
+                    (GotApiMsg <|
+                        GotGoogleMsg <|
+                            Google.SentAction googleAction
+                    )
+                    model
+        , onWiktionary =
+            \request ->
+                update
+                    (GotApiMsg <|
+                        GotWiktionaryMsg <|
+                            Wiktionary.SentRequest request
+                    )
+                    model
+        }
 
 
 updateWithPage :
@@ -224,19 +250,32 @@ updateWithPage toPage toMsg model result =
            )
 
 
-performApiAction : Model -> Action Msg -> ( Model, Cmd Msg )
-performApiAction model action =
-    Action.match action
-        { onNone = ( model, Cmd.none )
-        , onGoogle =
-            \googleAction ->
-                update (GotGoogleMsg <| Google.SentAction googleAction) model
-        , onWiktionary =
-            \request ->
-                update
-                    (GotWiktionaryMsg <| Wiktionary.SentRequest request)
-                    model
-        }
+type alias ApiUpdate =
+    Model -> ( Model, Cmd Msg )
+
+
+updateWithApi :
+    msg
+    -> model
+    -> (msg -> model -> ( model, Cmd msg, OutMsg Msg ))
+    -> (msg -> ApiMsg)
+    -> (model -> ApiModel)
+    -> ApiUpdate
+updateWithApi subMsg subModel updateFn toMsg toModel model =
+    updateFn subMsg subModel
+        |> Triple.mapFirst (\m -> { model | api = toModel m })
+        |> (\( updatedModel, msg, outMsg ) ->
+                outMsg
+                    |> OutMsg.toList
+                    |> resolveOutMsgUpdates updatedModel Cmd.none
+                    |> Tuple.mapSecond
+                        (\updateCmd ->
+                            Cmd.batch
+                                [ updateCmd
+                                , Cmd.map (GotApiMsg << toMsg) msg
+                                ]
+                        )
+           )
 
 
 
@@ -246,10 +285,12 @@ performApiAction model action =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ Sub.map GotGoogleMsg (Google.subscriptions model.googleModel)
+        [ Sub.map
+            (GotApiMsg << GotGoogleMsg)
+            (Google.subscriptions model.api.google)
         , Sub.map
-            GotWiktionaryMsg
-            (Wiktionary.subscriptions model.wiktionaryModel)
+            (GotApiMsg << GotWiktionaryMsg)
+            (Wiktionary.subscriptions model.api.wiktionary)
         , case model.page of
             Auth subModel ->
                 Sub.none
@@ -286,3 +327,19 @@ pageView toMsg viewFn subModel =
     { title = title
     , body = [ Html.map toMsg content ]
     }
+
+
+
+-- MAIN
+
+
+main : Program () Model Msg
+main =
+    Browser.application
+        { init = init
+        , view = view
+        , update = update
+        , subscriptions = subscriptions
+        , onUrlChange = UrlChanged
+        , onUrlRequest = LinkClicked
+        }
