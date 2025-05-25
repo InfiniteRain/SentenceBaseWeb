@@ -68,8 +68,6 @@ update msg model =
 createSubSheetsTask : String -> String -> Task Http.Error ()
 createSubSheetsTask token sheetId =
     Requests.sheetBatchUpdateRequest
-        token
-        sheetId
         (Requests.addSubSheetRequests columnSize
             [ { id = 200
               , name = "pending_sentences"
@@ -105,6 +103,8 @@ createSubSheetsTask token sheetId =
               }
             ]
         )
+        token
+        sheetId
 
 
 

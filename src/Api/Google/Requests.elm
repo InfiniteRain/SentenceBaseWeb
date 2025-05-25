@@ -15,12 +15,10 @@ module Api.Google.Requests exposing
     , getSubSheetDataRequest
     , httpRequest
     , httpTask
-    , sheetBatchUpdateExternalRequest
     , sheetBatchUpdateRequest
     )
 
 import Api.Google.Constants as Constants exposing (MimeType(..), SpecialFile(..))
-import Api.Google.ParamTask exposing (ParamTask)
 import Http
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
@@ -535,7 +533,7 @@ sheetRequestBatchUpdateEncoder request =
 
 
 
--- INTERNAL API
+-- API
 
 
 type alias HttpTask response =
@@ -650,7 +648,7 @@ createAppFolderRequest token =
 
 
 findMainSheetRequest : String -> String -> HttpTask DriveResponseFileList
-findMainSheetRequest token appFolderId =
+findMainSheetRequest appFolderId token =
     httpTask
         { token = token
         , method = "GET"
@@ -674,7 +672,7 @@ findMainSheetRequest token appFolderId =
 
 
 createMainSheetRequest : String -> String -> HttpTask DriveResponseFileCreate
-createMainSheetRequest token appFolderId =
+createMainSheetRequest appFolderId token =
     httpTask
         { token = token
         , method = "POST"
@@ -692,11 +690,11 @@ createMainSheetRequest token appFolderId =
 
 
 getSubSheetDataRequest :
-    String
+    List SheetRequestGridRange
     -> String
-    -> List SheetRequestGridRange
+    -> String
     -> HttpTask SheetResponseGetSubSheetData
-getSubSheetDataRequest token sheetId ranges =
+getSubSheetDataRequest ranges token sheetId =
     httpTask
         { token = token
         , method = "POST"
@@ -720,11 +718,11 @@ getSubSheetDataRequest token sheetId ranges =
 
 
 sheetBatchUpdateRequest :
-    String
+    List SheetRequestBatchUpdateKind
     -> String
-    -> List SheetRequestBatchUpdateKind
+    -> String
     -> HttpTask ()
-sheetBatchUpdateRequest token sheetId kinds =
+sheetBatchUpdateRequest kinds token sheetId =
     httpTask
         { token = token
         , method = "POST"
@@ -740,42 +738,25 @@ sheetBatchUpdateRequest token sheetId kinds =
         }
 
 
-
--- EXTERNAL API
-
-
-type alias HttpParamTask response =
-    ParamTask Http.Error response
-
-
-getAppFolderId : HttpParamTask DriveResponseFileList
-getAppFolderId =
-    \token _ ->
-        httpTask
-            { token = token
-            , method = "GET"
-            , url =
-                googleUrl
-                    (googleDriveRoute [ "files" ])
-                    [ string "q"
-                        ("name = '"
-                            ++ Constants.specialFileName AppFolder
-                            ++ "' and mimeType = '"
-                            ++ Constants.mimeTypeName Folder
-                            ++ "'"
-                        )
-                    ]
-            , body = Http.emptyBody
-            , resolver = jsonResolver driveResponseFileListDecoder
-            }
-
-
-sheetBatchUpdateExternalRequest :
-    List SheetRequestBatchUpdateKind
-    -> HttpParamTask ()
-sheetBatchUpdateExternalRequest kinds =
-    \token sheetId ->
-        sheetBatchUpdateRequest token sheetId kinds
+getAppFolderId : String -> String -> HttpTask DriveResponseFileList
+getAppFolderId token _ =
+    httpTask
+        { token = token
+        , method = "GET"
+        , url =
+            googleUrl
+                (googleDriveRoute [ "files" ])
+                [ string "q"
+                    ("name = '"
+                        ++ Constants.specialFileName AppFolder
+                        ++ "' and mimeType = '"
+                        ++ Constants.mimeTypeName Folder
+                        ++ "'"
+                    )
+                ]
+        , body = Http.emptyBody
+        , resolver = jsonResolver driveResponseFileListDecoder
+        }
 
 
 

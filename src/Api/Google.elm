@@ -118,8 +118,8 @@ update msg model =
                     ( { model | appFolderId = file.id }
                     , Task.attempt GotFindMainSheetResponse <|
                         Requests.findMainSheetRequest
-                            model.token
                             file.id
+                            model.token
                     , OutMsg.none
                     )
 
@@ -138,8 +138,8 @@ update msg model =
             ( { model | appFolderId = response.id }
             , Task.attempt GotCreateMainSheetResponse <|
                 Requests.createMainSheetRequest
-                    model.token
                     response.id
+                    model.token
             , OutMsg.none
             )
 
@@ -155,8 +155,8 @@ update msg model =
                     ( model
                     , Task.attempt GotCreateMainSheetResponse <|
                         Requests.createMainSheetRequest
-                            model.token
                             model.appFolderId
+                            model.token
                     , OutMsg.none
                     )
 

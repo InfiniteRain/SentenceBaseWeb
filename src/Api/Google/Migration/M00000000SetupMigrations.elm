@@ -38,8 +38,6 @@ init token sheetId =
     , initialTask =
         TaskCmd.attempt GotSubSheetDataResponse <|
             Requests.getSubSheetDataRequest
-                token
-                sheetId
                 [ { sheetId = Constants.subSheetId Migrations
                   , startRowIndex = Just 1
                   , endRowIndex = Nothing
@@ -47,6 +45,8 @@ init token sheetId =
                   , endColumnIndex = Just 1
                   }
                 ]
+                token
+                sheetId
     }
 
 
@@ -89,8 +89,6 @@ createMigrationsSubSheetEffect :
 createMigrationsSubSheetEffect token sheetId =
     Effect.task GotCreateMigrationsSubSheetResponse <|
         Requests.sheetBatchUpdateRequest
-            token
-            sheetId
             (Requests.addSubSheetRequests columnSize
                 [ { id = 100
                   , name = "migrations"
@@ -101,6 +99,8 @@ createMigrationsSubSheetEffect token sheetId =
                   }
                 ]
             )
+            token
+            sheetId
 
 
 extractAppliedMigrations : Requests.SheetResponseGetSubSheetData -> Set String
