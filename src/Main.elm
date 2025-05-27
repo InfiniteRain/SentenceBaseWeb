@@ -343,6 +343,7 @@ updateWithPage subMsg subModel updateFn toMsg toModel model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
+    -- TODO: extract this into the setup section
     Sub.batch
         [ Sub.map
             (GotApiMsg << GotGoogleMsg)

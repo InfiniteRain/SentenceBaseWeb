@@ -172,24 +172,9 @@ app.ports.messageSenderPort.subscribe((message) => {
     .exhaustive();
 });
 
-let lastText: string | null = null;
-const clipboardInterval = 100;
-const clipboardSnapshot = async () => {
-  let text: string;
+app.ports.requestClipboardUpdatePort.subscribe(async () => {
   try {
-    text = await navigator.clipboard.readText();
-    if (text !== lastText) {
-      app.ports.clipboardPort.send(text);
-      lastText = text;
-    }
-  } catch {
-  } finally {
-    setTimeout(clipboardSnapshot, clipboardInterval);
-  }
-};
-
-app.ports.requestClipboardUpdatePort.subscribe(() => {
-  lastText = null;
+    const text = await navigator.clipboard.readText();
+    app.ports.clipboardPort.send(text);
+  } catch {}
 });
-
-clipboardSnapshot();
