@@ -16,6 +16,7 @@ module Api.Google.Requests exposing
     , httpRequest
     , httpTask
     , sheetBatchUpdateRequest
+    , sheetRequestRow
     )
 
 import Api.Google.Constants as Constants exposing (MimeType(..), SpecialFile(..))
@@ -914,3 +915,15 @@ validationFormula columns =
                     columns
            )
         ++ ")"
+
+
+sheetRequestRow : List SheetRequestExtendedValue -> List SheetRequestRowData
+sheetRequestRow values =
+    [ { values =
+            List.map
+                (\value ->
+                    { userEnteredValue = value }
+                )
+                values
+      }
+    ]

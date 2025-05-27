@@ -11,7 +11,7 @@ import Api.Google.Migration.Config exposing (Config)
 import Api.Google.Migration.Effect as Effect exposing (Effect, EffectInner(..))
 import Api.Google.Migration.M00000000SetupMigrations as SetupMigrations
 import Api.Google.Migration.M15052025SentencesAndWords as SentencesAndWords
-import Api.Google.Requests as Requests
+import Api.Google.Requests as Requests exposing (SheetRequestBatchUpdateKind(..), SheetRequestExtendedValue(..))
 import Api.Google.TaskCmd as TaskCmd
 import Http
 import Iso8601
@@ -245,22 +245,15 @@ fillMigrationsRequest :
     -> String
     -> Time.Posix
     -> Task Http.Error ()
-fillMigrationsRequest token sheetId migrationId date =
+fillMigrationsRequest token sheetId migrationId time =
     Requests.sheetBatchUpdateRequest
-        [ Requests.AppendCells
+        [ AppendCells
             { sheetId = Constants.subSheetId Migrations
             , rows =
-                [ { values =
-                        [ { userEnteredValue =
-                                Requests.StringValue migrationId
-                          }
-                        , { userEnteredValue =
-                                Requests.StringValue <|
-                                    Iso8601.fromTime date
-                          }
-                        ]
-                  }
-                ]
+                Requests.sheetRequestRow
+                    [ StringValue migrationId
+                    , StringValue <| Iso8601.fromTime time
+                    ]
             , fields = "userEnteredValue"
             }
         ]
