@@ -19,8 +19,7 @@ import Set exposing (Set)
 
 
 type alias Model =
-    { token : String
-    , sheetId : String
+    { sheetId : String
     }
 
 
@@ -28,25 +27,24 @@ type alias Config =
     Config_.Config Model Msg
 
 
-init : String -> String -> Config
-init token sheetId =
+init : String -> Config
+init sheetId =
     { id = "SetupMigrations"
     , model =
-        { token = token
-        , sheetId = sheetId
+        { sheetId = sheetId
         }
     , initialTask =
-        TaskCmd.attempt GotSubSheetDataResponse <|
-            Requests.getSubSheetDataRequest
-                [ { sheetId = Constants.subSheetId Migrations
-                  , startRowIndex = Just 1
-                  , endRowIndex = Nothing
-                  , startColumnIndex = Just 0
-                  , endColumnIndex = Just 1
-                  }
-                ]
-                token
-                sheetId
+        Requests.getSubSheetDataRequest
+            [ { sheetId = Constants.subSheetId Migrations
+              , startRowIndex = Just 1
+              , endRowIndex = Nothing
+              , startColumnIndex = Just 0
+              , endColumnIndex = Just 1
+              }
+            ]
+            sheetId
+            |> Requests.buildTask
+            |> TaskCmd.attempt GotSubSheetDataResponse
     }
 
 
@@ -57,17 +55,17 @@ init token sheetId =
 type Msg
     = GotSubSheetDataResponse
         (Result
-            Http.Error
+            Requests.Error
             Requests.SheetResponseGetSubSheetData
         )
-    | GotCreateMigrationsSubSheetResponse (Result Http.Error ())
+    | GotCreateMigrationsSubSheetResponse (Result Requests.Error ())
 
 
 update : Msg -> Model -> ( Model, EffectWithPayload Msg (Set String) )
-update msg ({ token, sheetId } as model) =
+update msg ({ sheetId } as model) =
     case msg of
-        GotSubSheetDataResponse (Err (Http.BadStatus 400)) ->
-            ( model, createMigrationsSubSheetEffect token sheetId )
+        GotSubSheetDataResponse (Err (Requests.Http (Http.BadStatus 400))) ->
+            ( model, createMigrationsSubSheetEffect sheetId )
 
         GotSubSheetDataResponse (Err err) ->
             ( model, Effect.fail err )
@@ -84,23 +82,22 @@ update msg ({ token, sheetId } as model) =
 
 createMigrationsSubSheetEffect :
     String
-    -> String
     -> EffectWithPayload Msg (Set String)
-createMigrationsSubSheetEffect token sheetId =
-    Effect.task GotCreateMigrationsSubSheetResponse <|
-        Requests.sheetBatchUpdateRequest
-            (Requests.addSubSheetRequests columnSize
-                [ { id = 100
-                  , name = "migrations"
-                  , columns =
-                        [ ( "name", MigrationName )
-                        , ( "applied_at", DateTime )
-                        ]
-                  }
-                ]
-            )
-            token
-            sheetId
+createMigrationsSubSheetEffect sheetId =
+    Requests.sheetBatchUpdateRequest
+        (Requests.addSubSheetRequests columnSize
+            [ { id = 100
+              , name = "migrations"
+              , columns =
+                    [ ( "name", MigrationName )
+                    , ( "applied_at", DateTime )
+                    ]
+              }
+            ]
+        )
+        sheetId
+        |> Requests.buildTask
+        |> Effect.task GotCreateMigrationsSubSheetResponse
 
 
 extractAppliedMigrations : Requests.SheetResponseGetSubSheetData -> Set String

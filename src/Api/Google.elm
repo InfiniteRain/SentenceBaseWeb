@@ -1,4 +1,4 @@
-port module Api.Google exposing
+module Api.Google exposing
     ( Action(..)
     , Model
     , Msg(..)
@@ -10,34 +10,10 @@ port module Api.Google exposing
 import Api.Google.Migration as Migration
 import Api.Google.ParamCmd exposing (ParamCmd)
 import Api.Google.Requests as Requests
-import Http
-import Json.Decode as Decode exposing (Decoder)
-import Json.Encode as Encode
 import OutMsg exposing (OutMsg(..))
+import Port
 import Task
-
-
-
--- PORTS
-
-
-port messageSenderPort : Encode.Value -> Cmd msg
-
-
-messageSender : OutgoingPortMsg -> Cmd msg
-messageSender msg =
-    msg |> portMsgEncoder |> messageSenderPort
-
-
-port messageReceiverPort : (Decode.Value -> msg) -> Sub msg
-
-
-messageReceiver : Sub (Msg rootMsg)
-messageReceiver =
-    messageReceiverPort
-        (\value ->
-            GotIncomingPortMsg (Decode.decodeValue portMsgDecoder value)
-        )
+import TaskPort
 
 
 
@@ -48,7 +24,6 @@ type alias Model rootMsg =
     { state : State
     , requestQueue : List (ParamCmd rootMsg)
     , initializeMsg : Maybe rootMsg
-    , token : String
     , appFolderId : String
     , mainSheetId : String
     }
@@ -68,7 +43,6 @@ init _ =
     ( { state = Uninitialized
       , requestQueue = []
       , initializeMsg = Nothing
-      , token = ""
       , appFolderId = ""
       , mainSheetId = ""
       }
@@ -81,13 +55,14 @@ init _ =
 
 
 type Msg rootMsg
-    = GotIncomingPortMsg (Result Decode.Error IncomingMsg)
+    = GotInitializedResult (TaskPort.Result ())
+    | GotAuthenticationResult (TaskPort.Result String)
     | SentAction (Action rootMsg)
-    | GotResponse rootMsg
-    | GotFindAppFolderResponse (Result Http.Error Requests.DriveResponseFileList)
-    | GotCreateAppFolderResponse (Result Http.Error Requests.DriveResponseFileCreate)
-    | GotFindMainSheetResponse (Result Http.Error Requests.DriveResponseFileList)
-    | GotCreateMainSheetResponse (Result Http.Error Requests.DriveResponseFileCreate)
+    | GotActionResponse rootMsg
+    | GotFindAppFolderResponse (Result Requests.Error Requests.DriveResponseFileList)
+    | GotCreateAppFolderResponse (Result Requests.Error Requests.DriveResponseFileCreate)
+    | GotFindMainSheetResponse (Result Requests.Error Requests.DriveResponseFileList)
+    | GotCreateMainSheetResponse (Result Requests.Error Requests.DriveResponseFileCreate)
     | GotMigrationMsg Migration.Msg
 
 
@@ -99,7 +74,7 @@ update msg model =
     case ( model.state, msg ) of
         ( Uninitialized, SentAction (Initialize rootMsg) ) ->
             ( { model | state = Initializing, initializeMsg = Just rootMsg }
-            , messageSender InitializeRequest
+            , Task.attempt GotInitializedResult Port.googleInitialize
             , OutMsg.none
             )
 
@@ -108,7 +83,41 @@ update msg model =
                 | state = Initializing
                 , requestQueue = model.requestQueue ++ [ paramCmd ]
               }
-            , messageSender InitializeRequest
+            , Task.attempt GotInitializedResult Port.googleInitialize
+            , OutMsg.none
+            )
+
+        ( Initializing, GotInitializedResult (Ok ()) ) ->
+            ( { model | state = Authenticating }
+            , Task.attempt GotAuthenticationResult Port.googleGetToken
+            , OutMsg.none
+            )
+
+        ( Initializing, GotInitializedResult (Err err) ) ->
+            let
+                _ =
+                    Debug.log "google initialize error" err
+            in
+            ( { model | state = Uninitialized }
+            , Cmd.none
+            , OutMsg.none
+            )
+
+        ( Authenticating, GotAuthenticationResult (Ok _) ) ->
+            ( { model | state = SettingUpAppFolder }
+            , Requests.findAppFoldersRequest
+                |> Requests.buildTask
+                |> Task.attempt GotFindAppFolderResponse
+            , OutMsg.none
+            )
+
+        ( Authenticating, GotAuthenticationResult (Err err) ) ->
+            let
+                _ =
+                    Debug.log "google authentication error" err
+            in
+            ( { model | state = Uninitialized }
+            , Cmd.none
             , OutMsg.none
             )
 
@@ -116,18 +125,17 @@ update msg model =
             case response.files of
                 file :: _ ->
                     ( { model | appFolderId = file.id }
-                    , Task.attempt GotFindMainSheetResponse <|
-                        Requests.findMainSheetRequest
-                            file.id
-                            model.token
+                    , Requests.findMainSheetRequest file.id
+                        |> Requests.buildTask
+                        |> Task.attempt GotFindMainSheetResponse
                     , OutMsg.none
                     )
 
                 [] ->
                     ( model
-                    , Task.attempt GotCreateAppFolderResponse <|
-                        Requests.createAppFolderRequest
-                            model.token
+                    , Requests.createAppFolderRequest
+                        |> Requests.buildTask
+                        |> Task.attempt GotCreateAppFolderResponse
                     , OutMsg.none
                     )
 
@@ -136,10 +144,9 @@ update msg model =
 
         ( SettingUpAppFolder, GotCreateAppFolderResponse (Ok response) ) ->
             ( { model | appFolderId = response.id }
-            , Task.attempt GotCreateMainSheetResponse <|
-                Requests.createMainSheetRequest
-                    response.id
-                    model.token
+            , Requests.createMainSheetRequest response.id
+                |> Requests.buildTask
+                |> Task.attempt GotCreateMainSheetResponse
             , OutMsg.none
             )
 
@@ -153,10 +160,10 @@ update msg model =
 
                 [] ->
                     ( model
-                    , Task.attempt GotCreateMainSheetResponse <|
-                        Requests.createMainSheetRequest
-                            model.appFolderId
-                            model.token
+                    , Requests.createMainSheetRequest
+                        model.appFolderId
+                        |> Requests.buildTask
+                        |> Task.attempt GotCreateMainSheetResponse
                     , OutMsg.none
                     )
 
@@ -190,15 +197,15 @@ update msg model =
         ( Ready, SentAction (SendRequest paramCmd) ) ->
             ( { model | requestQueue = model.requestQueue ++ [ paramCmd ] }
             , if List.isEmpty model.requestQueue then
-                paramCmd model.token model.mainSheetId
-                    |> Cmd.map GotResponse
+                paramCmd model.mainSheetId
+                    |> Cmd.map GotActionResponse
 
               else
                 Cmd.none
             , OutMsg.none
             )
 
-        ( Ready, GotResponse response ) ->
+        ( Ready, GotActionResponse response ) ->
             case model.requestQueue of
                 _ :: [] ->
                     ( { model | requestQueue = [] }
@@ -208,8 +215,8 @@ update msg model =
 
                 paramCmd :: rest ->
                     ( { model | requestQueue = rest }
-                    , paramCmd model.token model.mainSheetId
-                        |> Cmd.map GotResponse
+                    , paramCmd model.mainSheetId
+                        |> Cmd.map GotActionResponse
                     , OutMsg.some response
                     )
 
@@ -222,7 +229,7 @@ update msg model =
             , OutMsg.none
             )
 
-        ( _, GotResponse response ) ->
+        ( _, GotActionResponse response ) ->
             case model.requestQueue of
                 _ :: rest ->
                     ( { model | requestQueue = rest }
@@ -233,83 +240,8 @@ update msg model =
                 [] ->
                     ( { model | state = Ready }, Cmd.none, OutMsg.none )
 
-        ( _, GotIncomingPortMsg portMsg ) ->
-            case portMsg of
-                Ok decodedPortMsg ->
-                    handleIncomingPortMsg decodedPortMsg model
-
-                Err err ->
-                    let
-                        _ =
-                            Debug.log
-                                "error decoding port msg"
-                                (Decode.errorToString err)
-                    in
-                    ( model
-                    , Cmd.none
-                    , OutMsg.none
-                    )
-
         ( _, _ ) ->
             ( model, Cmd.none, OutMsg.none )
-
-
-handleIncomingPortMsg :
-    IncomingMsg
-    -> Model rootMsg
-    -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
-handleIncomingPortMsg msg model =
-    case ( model.state, msg ) of
-        ( Initializing, InitializedResponse ) ->
-            ( { model | state = Authenticating }
-            , messageSender AuthenticateRequest
-            , OutMsg.none
-            )
-
-        ( Initializing, InitializeFailedResponse err ) ->
-            let
-                _ =
-                    Debug.log "initialization error" err
-            in
-            ( { model | state = Uninitialized }
-            , Cmd.none
-            , OutMsg.none
-            )
-
-        ( Authenticating, AuthenticateResponse res ) ->
-            ( { model
-                | token = res.token
-                , state = SettingUpAppFolder
-              }
-            , Task.attempt GotFindAppFolderResponse <|
-                Requests.findAppFoldersRequest res.token
-            , OutMsg.none
-            )
-
-        ( Authenticating, AuthenticateFailedResponse err ) ->
-            let
-                _ =
-                    Debug.log "authentication error" err
-            in
-            ( { model | state = Uninitialized }
-            , Cmd.none
-            , OutMsg.none
-            )
-
-        ( Authenticating, InteractionRequiredResponse ) ->
-            Debug.todo "Implement interactionRequiredResponse"
-
-        unhandledCombination ->
-            let
-                _ =
-                    Debug.log
-                        "unhandled state/msg combination in handleIncomingMsg"
-                        unhandledCombination
-            in
-            ( model
-            , Cmd.none
-            , OutMsg.none
-            )
 
 
 transitionToMigrating :
@@ -318,7 +250,7 @@ transitionToMigrating :
 transitionToMigrating model =
     let
         ( migrationModel, migrationCmd ) =
-            Migration.init model.token model.mainSheetId
+            Migration.init model.mainSheetId
     in
     ( { model | state = Migrating migrationModel }
     , Cmd.map GotMigrationMsg migrationCmd
@@ -333,8 +265,8 @@ transitionToReady model =
     case model.requestQueue of
         request :: _ ->
             ( { model | state = Ready }
-            , request model.token model.mainSheetId
-                |> Cmd.map GotResponse
+            , request model.mainSheetId
+                |> Cmd.map GotActionResponse
             , model.initializeMsg
                 |> Maybe.map OutMsg.some
                 |> Maybe.withDefault OutMsg.none
@@ -355,7 +287,7 @@ transitionToReady model =
 
 subscriptions : Model rootMsg -> Sub (Msg rootMsg)
 subscriptions _ =
-    messageReceiver
+    Sub.none
 
 
 
@@ -365,80 +297,3 @@ subscriptions _ =
 type Action msg
     = Initialize msg
     | SendRequest (ParamCmd msg)
-
-
-
--- OUTGOING PORT MESSAGE
-
-
-type OutgoingPortMsg
-    = InitializeRequest
-    | AuthenticateRequest
-
-
-portMsgEncoder : OutgoingPortMsg -> Encode.Value
-portMsgEncoder msg =
-    case msg of
-        InitializeRequest ->
-            Encode.object [ ( "tag", Encode.string "initializeRequest" ) ]
-
-        AuthenticateRequest ->
-            Encode.object [ ( "tag", Encode.string "authenticateRequest" ) ]
-
-
-
--- INCOMING PORT MESSAGE
-
-
-type IncomingMsg
-    = InitializedResponse
-    | InitializeFailedResponse { message : String }
-    | AuthenticateResponse { token : String }
-    | AuthenticateFailedResponse { message : String }
-    | InteractionRequiredResponse
-
-
-portMsgDecoder : Decoder IncomingMsg
-portMsgDecoder =
-    Decode.field "tag" Decode.string
-        |> Decode.andThen portMsgFromTag
-
-
-portMsgFromTag : String -> Decoder IncomingMsg
-portMsgFromTag str =
-    case str of
-        "initializedResponse" ->
-            Decode.succeed InitializedResponse
-
-        "initializeFailedResponse" ->
-            initializeFailedDecoder
-
-        "authenticateResponse" ->
-            authenticateResponseDecoder
-
-        "authenticateFailedResponse" ->
-            authenticateFailedDecoder
-
-        "interactionRequiredResponse" ->
-            Decode.succeed InteractionRequiredResponse
-
-        _ ->
-            Decode.fail ("Invalid tag: " ++ str)
-
-
-initializeFailedDecoder : Decoder IncomingMsg
-initializeFailedDecoder =
-    Decode.map (\msg -> InitializeFailedResponse { message = msg })
-        (Decode.field "message" Decode.string)
-
-
-authenticateResponseDecoder : Decoder IncomingMsg
-authenticateResponseDecoder =
-    Decode.map (\token -> AuthenticateResponse { token = token })
-        (Decode.field "token" Decode.string)
-
-
-authenticateFailedDecoder : Decoder IncomingMsg
-authenticateFailedDecoder =
-    Decode.map (\msg -> AuthenticateFailedResponse { message = msg })
-        (Decode.field "message" Decode.string)

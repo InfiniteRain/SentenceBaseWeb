@@ -1,10 +1,14 @@
-port module Page.Mining exposing (..)
+module Page.Mining exposing (..)
 
 import Api.Action as Action exposing (Action(..))
 import Api.Google.Constants as Constants exposing (SubSheet(..))
-import Api.Google.ParamCmd exposing (ParamCmd)
 import Api.Google.ParamTask as ParamTask exposing (ParamTask)
-import Api.Google.Requests as Requests exposing (SheetRequestBatchUpdateKind(..), SheetRequestExtendedValue(..), sheetRequestRow)
+import Api.Google.Requests as Requests
+    exposing
+        ( SheetRequestBatchUpdateKind(..)
+        , SheetRequestExtendedValue(..)
+        , sheetRequestRow
+        )
 import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
 import Html exposing (Attribute, Html, br, button, div, li, span, text, ul)
 import Html.Attributes exposing (class, disabled, style)
@@ -12,20 +16,13 @@ import Html.Events exposing (onClick, stopPropagationOn)
 import Http
 import Iso8601
 import Json.Decode as Decode
+import Port
 import Regex
 import RegexExtra
 import Session exposing (Session)
+import Task
+import TaskPort
 import Time
-
-
-
--- PORTS
-
-
-port clipboardPort : (String -> msg) -> Sub msg
-
-
-port requestClipboardUpdatePort : () -> Cmd msg
 
 
 
@@ -55,7 +52,7 @@ type AddRequestState
     | Error
 
 
-init : Session -> ( Model, Cmd Msg )
+init : Session -> ( Model, Cmd Msg, Action Msg )
 init session =
     ( { session = session
       , sentence = ""
@@ -65,6 +62,7 @@ init session =
       , addRequestState = Idle
       }
     , Cmd.none
+    , Action.none
     )
 
 
@@ -74,17 +72,17 @@ init session =
 
 type Msg
     = BodyClicked
-    | ClipboardUpdated String
+    | ClipboardUpdated (TaskPort.Result String)
     | WordSelected String
     | DefinitionFetched (Result Http.Error Wiktionary.Usages)
     | MineClicked
-    | GotAddPendingSentenceResponse (Result Http.Error ())
+    | GotAddPendingSentenceResponse (Result Requests.Error ())
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
 update msg model =
     case msg of
-        ClipboardUpdated str ->
+        ClipboardUpdated (Ok str) ->
             if str == model.sentence then
                 ( model, Cmd.none, Action.none )
 
@@ -103,6 +101,9 @@ update msg model =
                 , Cmd.none
                 , Action.none
                 )
+
+        ClipboardUpdated (Err _) ->
+            ( model, Cmd.none, Action.none )
 
         WordSelected str ->
             ( { model | selectedWord = Just str, definitionState = Loading }
@@ -125,7 +126,10 @@ update msg model =
                     )
 
         BodyClicked ->
-            ( model, requestClipboardUpdatePort (), Action.none )
+            ( model
+            , Task.attempt ClipboardUpdated Port.readClipboard
+            , Action.none
+            )
 
         MineClicked ->
             ( { model
@@ -153,10 +157,10 @@ type alias PendingSentence =
     }
 
 
-addPendingSentenceRequest : PendingSentence -> ParamTask Http.Error ()
-addPendingSentenceRequest { word, sentence } =
-    ParamTask.fromTask Time.now
-        |> ParamTask.andThen
+addPendingSentenceRequest : PendingSentence -> ParamTask Requests.Error ()
+addPendingSentenceRequest { word, sentence } sheetId =
+    Time.now
+        |> Task.andThen
             (\time ->
                 Requests.sheetBatchUpdateRequest
                     [ AppendCells
@@ -170,6 +174,8 @@ addPendingSentenceRequest { word, sentence } =
                         , fields = "userEnteredValue"
                         }
                     ]
+                    sheetId
+                    |> Requests.buildTask
             )
 
 
@@ -179,7 +185,7 @@ addPendingSentenceRequest { word, sentence } =
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-    clipboardPort ClipboardUpdated
+    Sub.none
 
 
 

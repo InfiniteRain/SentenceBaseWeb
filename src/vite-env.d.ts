@@ -35,3 +35,13 @@ type ElmApp<T> = {
 };
 
 type ElmFlag = number | string | boolean | Record<string, ElmFlag> | ElmFlag[];
+
+declare module "elm-taskport" {
+  export type Configuration = {
+    logCallErrors?: boolean;
+    logInteropErrors?: boolean;
+  };
+
+  export const install: (configuration?: Configuration) => void;
+  export const register: (name: string, fn: (args?: any) => any) => void;
+}

@@ -1,8 +1,7 @@
 module Page.Auth exposing (..)
 
 import Api.Action as Action exposing (Action)
-import Html exposing (Html, button, div, text)
-import Html.Events exposing (onClick)
+import Html exposing (Html, div, text)
 import Route
 import Session exposing (Session)
 
@@ -15,10 +14,11 @@ type alias Model =
     { session : Session }
 
 
-init : Session -> ( Model, Cmd Msg )
+init : Session -> ( Model, Cmd Msg, Action Msg )
 init session =
     ( { session = session }
     , Cmd.none
+    , Action.googleInitialize AuthenticateCompleted
     )
 
 
@@ -27,19 +27,12 @@ init session =
 
 
 type Msg
-    = AuthenticatePressed
-    | AuthenticateCompleted
+    = AuthenticateCompleted
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
 update msg ({ session } as model) =
     case msg of
-        AuthenticatePressed ->
-            ( model
-            , Cmd.none
-            , Action.googleInitialize AuthenticateCompleted
-            )
-
         AuthenticateCompleted ->
             ( { model | session = Session.authenticate session }
             , Route.navigate (Session.navKey session) Route.Mining
@@ -56,7 +49,6 @@ view _ =
     { title = "Authentication"
     , content =
         div []
-            [ button [ onClick AuthenticatePressed ]
-                [ text "Authorize with Google" ]
+            [ text "Authorizing with Google..."
             ]
     }

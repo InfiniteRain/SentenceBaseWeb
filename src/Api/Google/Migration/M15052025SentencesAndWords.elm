@@ -10,7 +10,6 @@ import Api.Google.Migration.Config as Config_
 import Api.Google.Migration.Effect as Effect exposing (Effect)
 import Api.Google.Requests as Requests
 import Api.Google.TaskCmd as TaskCmd
-import Http
 import Task exposing (Task)
 
 
@@ -19,8 +18,7 @@ import Task exposing (Task)
 
 
 type alias Model =
-    { token : String
-    , sheetId : String
+    { sheetId : String
     , state : State
     }
 
@@ -33,17 +31,16 @@ type alias Config =
     Config_.Config Model Msg
 
 
-init : String -> String -> Config
-init token sheetId =
+init : String -> Config
+init sheetId =
     { id = "SentencesAndWords"
     , model =
-        { token = token
-        , sheetId = sheetId
+        { sheetId = sheetId
         , state = LookingForQuerySheet
         }
     , initialTask =
-        TaskCmd.attempt GotCreateSubSheetResponse <|
-            createSubSheetsTask token sheetId
+        createSubSheetsTask sheetId
+            |> TaskCmd.attempt GotCreateSubSheetResponse
     }
 
 
@@ -52,7 +49,7 @@ init token sheetId =
 
 
 type Msg
-    = GotCreateSubSheetResponse (Result Http.Error ())
+    = GotCreateSubSheetResponse (Result Requests.Error ())
 
 
 update : Msg -> Model -> ( Model, Effect Msg )
@@ -65,8 +62,8 @@ update msg model =
             ( model, Effect.done )
 
 
-createSubSheetsTask : String -> String -> Task Http.Error ()
-createSubSheetsTask token sheetId =
+createSubSheetsTask : String -> Task Requests.Error ()
+createSubSheetsTask sheetId =
     Requests.sheetBatchUpdateRequest
         (Requests.addSubSheetRequests columnSize
             [ { id = 200
@@ -103,8 +100,8 @@ createSubSheetsTask token sheetId =
               }
             ]
         )
-        token
         sheetId
+        |> Requests.buildTask
 
 
 

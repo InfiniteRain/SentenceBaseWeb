@@ -1,5 +1,5 @@
 import { Elm } from "./Main.elm";
-import { match } from "ts-pattern";
+import * as TaskPort from "elm-taskport";
 
 const CLIENT_ID = import.meta.env.VITE_CLIENT_ID;
 const API_KEY = import.meta.env.VITE_API_KEY;
@@ -13,42 +13,8 @@ const DEFAULT_ERROR = "Unknown error.";
 
 const LOCAL_STORAGE_KEYS = {
   GOOGLE_EMAIL: "sentence_base_google_email",
+  GOOGLE_TOKEN: "sentence_base_google_token",
 };
-
-type IncomingMessage =
-  | { tag: "initializeRequest" }
-  | { tag: "authenticateRequest" };
-
-type OutgoingMessage =
-  | {
-      tag: "initializedResponse";
-    }
-  | {
-      tag: "initializeFailedResponse";
-      message: string;
-    }
-  | {
-      tag: "authenticateResponse";
-      token: string;
-    }
-  | {
-      tag: "authenticateFailedResponse";
-      message: string;
-    }
-  | {
-      tag: "interactionRequiredResponse";
-    };
-
-type Ports = {
-  messageSenderPort: ElmReceivePort<IncomingMessage>;
-  messageReceiverPort: ElmSendPort<OutgoingMessage>;
-  requestClipboardUpdatePort: ElmReceivePort<void>;
-  clipboardPort: ElmSendPort<string>;
-};
-
-const app = Elm.Main.init<Ports>({
-  node: document.getElementById("app"),
-});
 
 let tokenClient: google.accounts.oauth2.TokenClient | null = null;
 let tokenCallback!: (
@@ -73,9 +39,15 @@ const googleApiFetch = async <T>(
   return await response.json();
 };
 
-app.ports.messageSenderPort.subscribe((message) => {
-  match(message)
-    .with({ tag: "initializeRequest" }, () => {
+TaskPort.install({
+  logCallErrors: true,
+  logInteropErrors: true,
+});
+
+TaskPort.register(
+  "googleInitialize",
+  () =>
+    new Promise<void>((resolve, reject) => {
       gapi.load("client", async () => {
         try {
           await gapi.client.init({
@@ -94,9 +66,7 @@ app.ports.messageSenderPort.subscribe((message) => {
             },
           });
 
-          app.ports.messageReceiverPort.send({
-            tag: "initializedResponse",
-          });
+          resolve();
         } catch (e) {
           const message =
             typeof e === "object" && e !== null
@@ -111,19 +81,25 @@ app.ports.messageSenderPort.subscribe((message) => {
                   : DEFAULT_ERROR
               : DEFAULT_ERROR;
 
-          app.ports.messageReceiverPort.send({
-            tag: "initializeFailedResponse",
-            message,
-          });
+          reject(new Error(message));
         }
       });
-    })
-    .with({ tag: "authenticateRequest" }, () => {
+    }),
+);
+
+TaskPort.register(
+  "googleGetToken",
+  (shouldRefresh: boolean) =>
+    new Promise<string>((resolve, reject) => {
       if (tokenClient === null) {
-        app.ports.messageReceiverPort.send({
-          tag: "authenticateFailedResponse",
-          message: "Token client was not initialized.",
-        });
+        reject(new Error("Token client was not initialized."));
+        return;
+      }
+
+      const token = localStorage.getItem(LOCAL_STORAGE_KEYS.GOOGLE_TOKEN);
+
+      if (token && !shouldRefresh) {
+        resolve(token);
         return;
       }
 
@@ -139,26 +115,22 @@ app.ports.messageSenderPort.subscribe((message) => {
             );
           }
 
-          app.ports.messageReceiverPort.send({
-            tag: "authenticateResponse",
-            token: arg.access_token,
-          });
+          localStorage.setItem(
+            LOCAL_STORAGE_KEYS.GOOGLE_TOKEN,
+            arg.access_token,
+          );
+
+          resolve(arg.access_token);
         } else if (arg.error === "interaction_required") {
-          app.ports.messageReceiverPort.send({
-            tag: "interactionRequiredResponse",
-          });
+          localStorage.removeItem(LOCAL_STORAGE_KEYS.GOOGLE_EMAIL);
+          localStorage.removeItem(LOCAL_STORAGE_KEYS.GOOGLE_TOKEN);
+          location.reload();
         } else {
-          app.ports.messageReceiverPort.send({
-            tag: "authenticateFailedResponse",
-            message: arg.error_description,
-          });
+          reject(new Error(arg.error_description));
         }
       };
       tokenErrorCallback = (err) => {
-        app.ports.messageReceiverPort.send({
-          tag: "authenticateFailedResponse",
-          message: err.message,
-        });
+        reject(new Error(err.message));
       };
 
       const email = localStorage.getItem(LOCAL_STORAGE_KEYS.GOOGLE_EMAIL);
@@ -168,13 +140,15 @@ app.ports.messageSenderPort.subscribe((message) => {
       } else {
         tokenClient.requestAccessToken({ prompt: "consent" });
       }
-    })
-    .exhaustive();
+    }),
+);
+
+TaskPort.register("readClipboard", async () => {
+  try {
+    return await navigator.clipboard.readText();
+  } catch {}
 });
 
-app.ports.requestClipboardUpdatePort.subscribe(async () => {
-  try {
-    const text = await navigator.clipboard.readText();
-    app.ports.clipboardPort.send(text);
-  } catch {}
+Elm.Main.init({
+  node: document.getElementById("app"),
 });

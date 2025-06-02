@@ -1,12 +1,15 @@
 module Api.Google.Requests exposing
     ( DriveResponseFileCreate
     , DriveResponseFileList
+    , Error(..)
     , SheetRequestBatchUpdateKind(..)
     , SheetRequestDimension(..)
     , SheetRequestExtendedValue(..)
     , SheetResponseCellExtendedData(..)
     , SheetResponseGetSubSheetData
+    , Task
     , addSubSheetRequests
+    , buildTask
     , createAppFolderRequest
     , createMainSheetRequest
     , findAppFoldersRequest
@@ -19,11 +22,17 @@ module Api.Google.Requests exposing
     , sheetRequestRow
     )
 
-import Api.Google.Constants as Constants exposing (MimeType(..), SpecialFile(..))
-import Http
+import Api.Google.Constants as Constants
+    exposing
+        ( MimeType(..)
+        , SpecialFile(..)
+        )
+import Http exposing (Error(..))
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
-import Task exposing (Task)
+import Port
+import Task
+import TaskPort
 import Url.Builder exposing (QueryParameter, crossOrigin, string)
 
 
@@ -537,56 +546,80 @@ sheetRequestBatchUpdateEncoder request =
 -- API
 
 
-type alias HttpTask response =
-    Task Http.Error response
+type Error
+    = Http Http.Error
+    | TokenAcquisitionFailed TaskPort.Error
 
 
-handleJsonResponse : Decoder a -> Http.Response String -> Result Http.Error a
+type Task response
+    = Task (String -> Task.Task Error response)
+
+
+buildTask : Task response -> Task.Task Error response
+buildTask (Task taskConstructor) =
+    Port.googleGetToken
+        |> Task.mapError TokenAcquisitionFailed
+        |> Task.andThen taskConstructor
+        |> Task.onError
+            (\err ->
+                case err of
+                    Http (BadStatus 401) ->
+                        Port.googleGetTokenRefresh
+                            |> Task.mapError TokenAcquisitionFailed
+                            |> Task.andThen taskConstructor
+
+                    _ ->
+                        Task.fail err
+            )
+
+
+handleJsonResponse : Decoder a -> Http.Response String -> Result Error a
 handleJsonResponse decoder response =
     case response of
         Http.BadUrl_ url ->
-            Err (Http.BadUrl url)
+            Err <| Http <| Http.BadUrl url
 
         Http.Timeout_ ->
-            Err Http.Timeout
+            Err <| Http <| Http.Timeout
 
         Http.BadStatus_ { statusCode } _ ->
-            Err (Http.BadStatus statusCode)
+            Err <| Http <| Http.BadStatus statusCode
 
         Http.NetworkError_ ->
-            Err Http.NetworkError
+            Err <| Http <| Http.NetworkError
 
         Http.GoodStatus_ _ body ->
             case Decode.decodeString decoder body of
                 Err _ ->
-                    Err (Http.BadBody body)
+                    Err <| Http <| Http.BadBody body
 
                 Ok result ->
                     Ok result
 
 
-jsonResolver : Decoder response -> Http.Resolver Http.Error response
+jsonResolver : Decoder response -> Http.Resolver Error response
 jsonResolver decoder =
     Http.stringResolver <| handleJsonResponse <| decoder
 
 
 httpTask :
-    { token : String
-    , method : String
+    { method : String
     , url : String
     , body : Http.Body
-    , resolver : Http.Resolver Http.Error response
+    , resolver : Http.Resolver Error response
     }
-    -> HttpTask response
-httpTask { token, method, url, body, resolver } =
-    Http.task
-        { method = method
-        , headers = [ tokenHeader token ]
-        , url = url
-        , body = body
-        , resolver = resolver
-        , timeout = Nothing
-        }
+    -> Task response
+httpTask { method, url, body, resolver } =
+    Task <|
+        \token ->
+            Http.task
+                { method = method
+                , headers = [ tokenHeader token ]
+                , url = url
+                , body = body
+                , resolver = resolver
+                , timeout = Nothing
+                }
 
 
 httpRequest :
@@ -609,11 +642,10 @@ httpRequest { token, method, url, body, expect } =
         }
 
 
-findAppFoldersRequest : String -> HttpTask DriveResponseFileList
-findAppFoldersRequest token =
+findAppFoldersRequest : Task DriveResponseFileList
+findAppFoldersRequest =
     httpTask
-        { token = token
-        , method = "GET"
+        { method = "GET"
         , url =
             googleUrl
                 (googleDriveRoute [ "files" ])
@@ -631,11 +663,10 @@ findAppFoldersRequest token =
         }
 
 
-createAppFolderRequest : String -> HttpTask DriveResponseFileCreate
-createAppFolderRequest token =
+createAppFolderRequest : Task DriveResponseFileCreate
+createAppFolderRequest =
     httpTask
-        { token = token
-        , method = "POST"
+        { method = "POST"
         , url = googleUrl (googleDriveRoute [ "files" ]) []
         , body =
             Http.jsonBody <|
@@ -648,11 +679,10 @@ createAppFolderRequest token =
         }
 
 
-findMainSheetRequest : String -> String -> HttpTask DriveResponseFileList
-findMainSheetRequest appFolderId token =
+findMainSheetRequest : String -> Task DriveResponseFileList
+findMainSheetRequest appFolderId =
     httpTask
-        { token = token
-        , method = "GET"
+        { method = "GET"
         , url =
             googleUrl
                 (googleDriveRoute [ "files" ])
@@ -672,11 +702,10 @@ findMainSheetRequest appFolderId token =
         }
 
 
-createMainSheetRequest : String -> String -> HttpTask DriveResponseFileCreate
-createMainSheetRequest appFolderId token =
+createMainSheetRequest : String -> Task DriveResponseFileCreate
+createMainSheetRequest appFolderId =
     httpTask
-        { token = token
-        , method = "POST"
+        { method = "POST"
         , url = googleUrl (googleDriveRoute [ "files" ]) []
         , body =
             Http.jsonBody
@@ -693,12 +722,10 @@ createMainSheetRequest appFolderId token =
 getSubSheetDataRequest :
     List SheetRequestGridRange
     -> String
-    -> String
-    -> HttpTask SheetResponseGetSubSheetData
-getSubSheetDataRequest ranges token sheetId =
+    -> Task SheetResponseGetSubSheetData
+getSubSheetDataRequest ranges sheetId =
     httpTask
-        { token = token
-        , method = "POST"
+        { method = "POST"
         , url =
             googleSheetsUrl
                 (googleSheetsRoute [ sheetId ++ ":getByDataFilter" ])
@@ -721,12 +748,10 @@ getSubSheetDataRequest ranges token sheetId =
 sheetBatchUpdateRequest :
     List SheetRequestBatchUpdateKind
     -> String
-    -> String
-    -> HttpTask ()
-sheetBatchUpdateRequest kinds token sheetId =
+    -> Task ()
+sheetBatchUpdateRequest kinds sheetId =
     httpTask
-        { token = token
-        , method = "POST"
+        { method = "POST"
         , url =
             googleSheetsUrl
                 (googleSheetsRoute [ sheetId ++ ":batchUpdate" ])
@@ -739,11 +764,10 @@ sheetBatchUpdateRequest kinds token sheetId =
         }
 
 
-getAppFolderId : String -> String -> HttpTask DriveResponseFileList
-getAppFolderId token _ =
+getAppFolderId : Task DriveResponseFileList
+getAppFolderId =
     httpTask
-        { token = token
-        , method = "GET"
+        { method = "GET"
         , url =
             googleUrl
                 (googleDriveRoute [ "files" ])

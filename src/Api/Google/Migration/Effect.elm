@@ -8,8 +8,8 @@ module Api.Google.Migration.Effect exposing
     , task
     )
 
+import Api.Google.Requests as Requests
 import Api.Google.TaskCmd as TaskCmd exposing (TaskCmd)
-import Http
 import Platform exposing (Task)
 
 
@@ -19,7 +19,7 @@ import Platform exposing (Task)
 
 type EffectInner msg payload
     = Task (TaskCmd msg)
-    | Fail Http.Error
+    | Fail Requests.Error
     | Done payload
 
 
@@ -43,7 +43,7 @@ task toMsg subTask =
     Task <| TaskCmd.attempt toMsg subTask
 
 
-fail : Http.Error -> EffectInner rootMsg payload
+fail : Requests.Error -> EffectInner rootMsg payload
 fail err =
     Fail err
 

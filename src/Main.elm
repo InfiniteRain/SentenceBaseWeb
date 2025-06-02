@@ -112,7 +112,7 @@ updatePage pageMsg pageModel =
             \model -> ( model, Cmd.none )
 
 
-routeToPage : Maybe Route -> Session -> ( PageModel, Cmd Msg )
+routeToPage : Maybe Route -> Session -> ( PageModel, Cmd Msg, Action Msg )
 routeToPage maybeRoute session =
     case maybeRoute of
         Just Route.Auth ->
@@ -139,7 +139,7 @@ pageToSession page =
             model.session
 
 
-initAuth : Session -> ( PageModel, Cmd Msg )
+initAuth : Session -> ( PageModel, Cmd Msg, Action Msg )
 initAuth session =
     initPageWith
         session
@@ -148,7 +148,7 @@ initAuth session =
         Auth
 
 
-initPage : Session -> ( PageModel, Cmd Msg )
+initPage : Session -> ( PageModel, Cmd Msg, Action Msg )
 initPage session =
     initAuth session
 
@@ -164,7 +164,7 @@ type alias Model =
 
 
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
-init _ _ navKey =
+init _ url navKey =
     let
         ( apiModel, apiCmd ) =
             initApi
@@ -172,17 +172,31 @@ init _ _ navKey =
         session =
             Session.create navKey
 
-        ( pageModel, pageCmd ) =
+        ( pageModel, pageCmd, pageAction ) =
             initPage session
+
+        model =
+            { api = apiModel
+            , page = pageModel
+            }
+
+        ( initialModel, initialPageCmd ) =
+            performApiAction model pageAction
     in
-    ( { api = apiModel
-      , page = pageModel
-      }
-    , Cmd.batch
-        [ apiCmd
-        , pageCmd
-        , Route.navigate navKey Route.Auth
-        ]
+    ( initialModel
+    , Cmd.batch <|
+        List.concat
+            [ [ initialPageCmd
+              , apiCmd
+              , pageCmd
+              ]
+            , if Route.fromUrl url /= Just Route.Auth then
+                [ Route.navigate navKey Route.Auth
+                ]
+
+              else
+                []
+            ]
     )
 
 
@@ -193,13 +207,16 @@ initApiCmd toApiMsg cmd =
 
 initPageWith :
     Session
-    -> (Session -> ( model, Cmd msg ))
+    -> (Session -> ( model, Cmd msg, Action msg ))
     -> (msg -> PageMsg)
     -> (model -> PageModel)
-    -> ( PageModel, Cmd Msg )
+    -> ( PageModel, Cmd Msg, Action Msg )
 initPageWith session initFn toMsg toModel =
     initFn session
-        |> Tuple.mapBoth toModel (Cmd.map (GotPageMsg << toMsg))
+        |> Triple.mapAll
+            toModel
+            (Cmd.map (GotPageMsg << toMsg))
+            (Action.map (GotPageMsg << toMsg))
 
 
 
@@ -222,7 +239,18 @@ update msg model =
     case ( msg, model.page ) of
         ( UrlChanged url, _ ) ->
             routeToPage (Route.fromUrl url) session
-                |> Tuple.mapFirst (\page -> { model | page = page })
+                |> Triple.mapFirst (\page -> { model | page = page })
+                |> (\( newModel, cmd, action ) ->
+                        action
+                            |> performApiAction newModel
+                            |> Tuple.mapSecond
+                                (\googleActionCmd ->
+                                    Cmd.batch
+                                        [ googleActionCmd
+                                        , cmd
+                                        ]
+                                )
+                   )
 
         ( LinkClicked urlRequest, _ ) ->
             case urlRequest of
@@ -352,7 +380,7 @@ subscriptions model =
             (GotApiMsg << GotWiktionaryMsg)
             (Wiktionary.subscriptions model.api.wiktionary)
         , case model.page of
-            Auth subModel ->
+            Auth _ ->
                 Sub.none
 
             Mining subModel ->

@@ -17,6 +17,6 @@
   "dependencies": {
     "@types/gapi": "^0.0.47",
     "@types/google.accounts": "^0.0.15",
-    "ts-pattern": "^5.7.0"
+    "elm-taskport": "^2.0.1"
   }
 }

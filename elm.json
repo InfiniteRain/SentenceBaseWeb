@@ -17,6 +17,7 @@
             "elm/url": "1.0.0",
             "garados007/triple": "1.0.0",
             "hecrj/html-parser": "2.4.0",
+            "lobanov/elm-taskport": "2.0.1",
             "rtfeldman/elm-iso8601-date-strings": "1.1.4"
         },
         "indirect": {
