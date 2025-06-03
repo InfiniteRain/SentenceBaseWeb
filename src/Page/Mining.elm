@@ -10,12 +10,13 @@ import Api.Google.Requests as Requests
         , sheetRequestRow
         )
 import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
-import Html exposing (Attribute, Html, br, button, div, li, span, text, ul)
-import Html.Attributes exposing (class, disabled, style)
-import Html.Events exposing (onClick, stopPropagationOn)
+import Html exposing (Attribute, Html, br, button, div, input, li, span, text, ul)
+import Html.Attributes exposing (class, disabled, style, type_, value)
+import Html.Events exposing (onClick, onInput, stopPropagationOn)
 import Http
 import Iso8601
 import Json.Decode as Decode
+import Json.Encode as Encode
 import Port
 import Regex
 import RegexExtra
@@ -33,6 +34,7 @@ type alias Model =
     { session : Session
     , sentence : String
     , sentenceWords : List String
+    , tagsInput : String
     , selectedWord : Maybe String
     , definitionState : DefinitionState
     , addRequestState : AddRequestState
@@ -57,6 +59,7 @@ init session =
     ( { session = session
       , sentence = ""
       , sentenceWords = []
+      , tagsInput = ""
       , selectedWord = Nothing
       , definitionState = WordNotSelected
       , addRequestState = Idle
@@ -77,6 +80,8 @@ type Msg
     | DefinitionFetched (Result Http.Error Wiktionary.Usages)
     | MineClicked
     | GotAddPendingSentenceResponse (Result Requests.Error ())
+    | OnTagsInputChanged String
+    | Noop
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
@@ -142,6 +147,11 @@ update msg model =
             , addPendingSentenceRequest
                 { word = model.selectedWord |> Maybe.withDefault ""
                 , sentence = model.sentence
+                , tags =
+                    model.tagsInput
+                        |> String.trim
+                        |> Regex.split RegexExtra.space
+                        |> List.filter ((/=) "")
                 }
                 |> ParamTask.attempt GotAddPendingSentenceResponse
                 |> Action.google
@@ -150,15 +160,25 @@ update msg model =
         GotAddPendingSentenceResponse _ ->
             ( model, Cmd.none, Action.none )
 
+        OnTagsInputChanged text ->
+            ( { model | tagsInput = text }
+            , Cmd.none
+            , Action.none
+            )
+
+        Noop ->
+            ( model, Cmd.none, Action.none )
+
 
 type alias PendingSentence =
     { word : String
     , sentence : String
+    , tags : List String
     }
 
 
 addPendingSentenceRequest : PendingSentence -> ParamTask Requests.Error ()
-addPendingSentenceRequest { word, sentence } sheetId =
+addPendingSentenceRequest { word, sentence, tags } sheetId =
     Time.now
         |> Task.andThen
             (\time ->
@@ -169,6 +189,7 @@ addPendingSentenceRequest { word, sentence } sheetId =
                             sheetRequestRow
                                 [ StringValue word
                                 , StringValue sentence
+                                , StringValue <| encodeTags tags
                                 , StringValue <| Iso8601.fromTime time
                                 ]
                         , fields = "userEnteredValue"
@@ -177,6 +198,12 @@ addPendingSentenceRequest { word, sentence } sheetId =
                     sheetId
                     |> Requests.buildTask
             )
+
+
+encodeTags : List String -> String
+encodeTags tags =
+    Encode.list Encode.string tags
+        |> Encode.encode 0
 
 
 
@@ -231,12 +258,27 @@ view model =
                     NotFound ->
                         [ span [] [ text "Definition was not found" ] ]
                 , [ br [] [] ]
+                , [ input
+                        [ type_ "text"
+                        , value model.tagsInput
+                        , onClick Noop
+                        , onInput OnTagsInputChanged
+                        ]
+                        []
+                  ]
+                , [ br [] [] ]
                 , [ button
                         [ disabled (model.selectedWord == Nothing)
                         , onClick MineClicked
                         ]
                         [ text "Mine" ]
                   ]
+                , [ br [] [] ]
+                , [ br [] [] ]
+                , [ br [] [] ]
+                , [ br [] [] ]
+                , [ br [] [] ]
+                , [ div [] [ text "wij hebben een serieus probleem" ] ]
                 ]
             )
     }

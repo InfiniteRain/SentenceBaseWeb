@@ -71,6 +71,7 @@ createSubSheetsTask sheetId =
               , columns =
                     [ ( "word", Word )
                     , ( "sentence", Sentence )
+                    , ( "tags", Tags )
                     , ( "added_at", DateTime )
                     ]
               }
@@ -79,6 +80,7 @@ createSubSheetsTask sheetId =
               , columns =
                     [ ( "word", Word )
                     , ( "sentence", Sentence )
+                    , ( "tags", Tags )
                     , ( "batch_id", Id )
                     , ( "mined_at", DateTime )
                     ]
@@ -95,6 +97,7 @@ createSubSheetsTask sheetId =
               , columns =
                     [ ( "word", Word )
                     , ( "sentence", Sentence )
+                    , ( "tags", Tags )
                     , ( "backlogged_at", DateTime )
                     ]
               }
@@ -112,6 +115,7 @@ type Column
     = DateTime
     | Word
     | Sentence
+    | Tags
     | Id
 
 
@@ -126,6 +130,9 @@ columnSize column =
 
         Sentence ->
             500
+
+        Tags ->
+            350
 
         Id ->
             75
