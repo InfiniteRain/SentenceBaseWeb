@@ -93,13 +93,8 @@ update msg model =
 
             else
                 ( { model
-                    | sentence =
-                        str
-                            |> String.trim
-                    , sentenceWords =
-                        str
-                            |> String.trim
-                            |> Regex.split RegexExtra.space
+                    | sentence = String.trim str
+                    , sentenceWords = RegexExtra.sentenceSplit str
                     , selectedWord = Nothing
                     , definitionState = WordNotSelected
                   }
