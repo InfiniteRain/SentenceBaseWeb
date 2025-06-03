@@ -2,13 +2,16 @@ module Main exposing (..)
 
 import Api.Action as Action exposing (Action)
 import Api.Google as Google exposing (Msg(..))
+import Api.Google.Constants exposing (SubSheet(..))
 import Api.Wiktionary as Wiktionary exposing (Msg(..))
 import Browser
 import Browser.Navigation as Nav
-import Html exposing (Html)
+import Html exposing (Html, a, span, text)
+import Html.Attributes exposing (href)
 import OutMsg exposing (OutMsg)
 import Page.Auth as Auth exposing (Msg(..))
 import Page.Mining as Mining exposing (Msg(..))
+import Page.PendingSentences as PendingSentences
 import Route exposing (Route(..))
 import Session exposing (Session)
 import Triple
@@ -90,11 +93,13 @@ apiSubscriptions apiModel =
 type PageMsg
     = GotAuthMsg Auth.Msg
     | GotMiningMsg Mining.Msg
+    | GotPendingSentencesMsg PendingSentences.Msg
 
 
 type PageModel
     = Auth Auth.Model
     | Mining Mining.Model
+    | PendingSentences PendingSentences.Model
 
 
 updatePage : PageMsg -> PageModel -> Update
@@ -115,6 +120,14 @@ updatePage pageMsg pageModel =
                 Mining.update
                 GotMiningMsg
                 Mining
+
+        ( GotPendingSentencesMsg subMsg, PendingSentences subModel ) ->
+            updateWithPage
+                subMsg
+                subModel
+                PendingSentences.update
+                GotPendingSentencesMsg
+                PendingSentences
 
         _ ->
             let
@@ -139,6 +152,13 @@ routeToPage maybeRoute session =
                 GotMiningMsg
                 Mining
 
+        Just Route.PendingSentences ->
+            initPageWith
+                session
+                PendingSentences.init
+                GotPendingSentencesMsg
+                PendingSentences
+
         Nothing ->
             initAuth session
 
@@ -150,6 +170,9 @@ pageToSession page =
             model.session
 
         Mining model ->
+            model.session
+
+        PendingSentences model ->
             model.session
 
 
@@ -175,6 +198,28 @@ pageSubscriptions pageModel =
 
         Mining subModel ->
             subscribePage GotMiningMsg Mining.subscriptions subModel
+
+        PendingSentences subModel ->
+            subscribePage
+                GotPendingSentencesMsg
+                PendingSentences.subscriptions
+                subModel
+
+
+pageView : PageModel -> Browser.Document Msg
+pageView pageModel =
+    case pageModel of
+        Auth subModel ->
+            viewWithPage GotAuthMsg Auth.view subModel
+
+        Mining subModel ->
+            viewWithPage GotMiningMsg Mining.view subModel
+
+        PendingSentences subModel ->
+            viewWithPage
+                GotPendingSentencesMsg
+                PendingSentences.view
+                subModel
 
 
 
@@ -421,26 +466,38 @@ subscribePage toMsg subs subModel =
 
 view : Model -> Browser.Document Msg
 view model =
-    case model.page of
-        Auth subModel ->
-            pageView (GotPageMsg << GotAuthMsg) Auth.view subModel
+    let
+        { title, body } =
+            pageView model.page
+    in
+    { title = title
+    , body =
+        (case model.page of
+            Auth _ ->
+                []
 
-        Mining subModel ->
-            pageView (GotPageMsg << GotMiningMsg) Mining.view subModel
+            _ ->
+                [ a [ href "/mining" ] [ text "Mining" ]
+                , span [] [ text " " ]
+                , a [ href "/pendingSentences" ] [ text "Sentences" ]
+                ]
+        )
+            ++ body
+    }
 
 
-pageView :
-    (subMsg -> Msg)
+viewWithPage :
+    (subMsg -> PageMsg)
     -> (subModel -> { title : String, content : Html subMsg })
     -> subModel
     -> Browser.Document Msg
-pageView toMsg viewFn subModel =
+viewWithPage toMsg viewFn subModel =
     let
         { title, content } =
             viewFn subModel
     in
     { title = title
-    , body = [ Html.map toMsg content ]
+    , body = [ Html.map (GotPageMsg << toMsg) content ]
     }
 
 

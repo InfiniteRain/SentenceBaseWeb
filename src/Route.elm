@@ -12,6 +12,7 @@ import Url.Parser as Parser exposing (Parser, s)
 type Route
     = Auth
     | Mining
+    | PendingSentences
 
 
 parser : Parser (Route -> a) a
@@ -19,6 +20,7 @@ parser =
     Parser.oneOf
         [ Parser.map Auth Parser.top
         , Parser.map Mining (s "mining")
+        , Parser.map PendingSentences (s "pendingSentences")
         ]
 
 
@@ -49,3 +51,6 @@ routeToSegments route =
 
         Mining ->
             [ "mining" ]
+
+        PendingSentences ->
+            [ "pendingSentences" ]
