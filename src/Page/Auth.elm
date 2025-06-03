@@ -2,7 +2,8 @@ module Page.Auth exposing (..)
 
 import Api.Action as Action exposing (Action)
 import Api.Google as Google exposing (InitializeFailure(..), InitializeUpdate(..))
-import Html exposing (Html, div, text)
+import Html exposing (Html, br, button, div, text)
+import Html.Events exposing (onClick)
 import Route
 import Session exposing (Session)
 
@@ -13,6 +14,7 @@ import Session exposing (Session)
 
 type alias Model =
     { statusText : String
+    , initFailed : Bool
     , session : Session
     }
 
@@ -20,6 +22,7 @@ type alias Model =
 init : Session -> ( Model, Cmd Msg, Action Msg )
 init session =
     ( { statusText = "Authenticating..."
+      , initFailed = False
       , session = session
       }
     , Cmd.none
@@ -33,23 +36,36 @@ init session =
 
 type Msg
     = InitializeUpdated Google.InitializeUpdate
+    | TryAgainClicked
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
-update (InitializeUpdated initializeUpdate) ({ session } as model) =
-    case initializeUpdate of
-        Google.Done ->
+update msg ({ session } as model) =
+    case msg of
+        InitializeUpdated Done ->
             ( { model | session = Session.authenticate session }
             , Route.navigate (Session.navKey session) Route.Mining
             , Action.none
             )
 
-        _ ->
+        InitializeUpdated (Failed _) ->
+            ( { model | initFailed = True }
+            , Cmd.none
+            , Action.none
+            )
+
+        InitializeUpdated initializeUpdate ->
             ( { model
                 | statusText = initializeUpdateToStatusText initializeUpdate
               }
             , Cmd.none
             , Action.none
+            )
+
+        TryAgainClicked ->
+            ( { model | initFailed = False }
+            , Cmd.none
+            , Action.googleInitialize InitializeUpdated
             )
 
 
@@ -115,7 +131,16 @@ view : Model -> { title : String, content : Html Msg }
 view model =
     { title = "Authentication"
     , content =
-        div []
-            [ text model.statusText
-            ]
+        div [] <|
+            List.concat
+                [ [ text model.statusText
+                  ]
+                , if model.initFailed then
+                    [ br [] []
+                    , button [ onClick TryAgainClicked ] [ text "Try again" ]
+                    ]
+
+                  else
+                    []
+                ]
     }
