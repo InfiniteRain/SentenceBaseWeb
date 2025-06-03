@@ -1,4 +1,4 @@
-module Page.Mining exposing (..)
+module Page.Mining exposing (Model, Msg(..), init, subscriptions, update, view)
 
 import Api.Action as Action exposing (Action(..))
 import Api.Google.Constants as Constants exposing (SubSheet(..))

@@ -1,4 +1,4 @@
-module Page.Auth exposing (..)
+module Page.Auth exposing (Model, Msg(..), init, subscriptions, update, view)
 
 import Api.Action as Action exposing (Action)
 import Api.Google as Google exposing (InitializeFailure(..), InitializeUpdate(..))
@@ -121,6 +121,15 @@ initializeUpdateToStatusText initializeUpdate =
 
                 MainSheetMigration migrationId _ ->
                     "Failure during migration " ++ migrationId
+
+
+
+-- SUBSCRIPTIONS
+
+
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    Sub.none
 
 
 

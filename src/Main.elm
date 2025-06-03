@@ -69,6 +69,20 @@ initApi =
     )
 
 
+apiSubscriptions : ApiModel -> Sub Msg
+apiSubscriptions apiModel =
+    Sub.batch
+        [ subscribeApi
+            GotGoogleMsg
+            Google.subscriptions
+            apiModel.google
+        , subscribeApi
+            GotWiktionaryMsg
+            Wiktionary.subscriptions
+            apiModel.wiktionary
+        ]
+
+
 
 -- PAGE SETUP
 
@@ -151,6 +165,16 @@ initAuth session =
 initPage : Session -> ( PageModel, Cmd Msg, Action Msg )
 initPage session =
     initAuth session
+
+
+pageSubscriptions : PageModel -> Sub Msg
+pageSubscriptions pageModel =
+    case pageModel of
+        Auth subModel ->
+            subscribePage GotAuthMsg Auth.subscriptions subModel
+
+        Mining subModel ->
+            subscribePage GotMiningMsg Mining.subscriptions subModel
 
 
 
@@ -371,23 +395,24 @@ updateWithPage subMsg subModel updateFn toMsg toModel model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    -- TODO: extract this into the setup section
     Sub.batch
-        [ Sub.map
-            (GotApiMsg << GotGoogleMsg)
-            (Google.subscriptions model.api.google)
-        , Sub.map
-            (GotApiMsg << GotWiktionaryMsg)
-            (Wiktionary.subscriptions model.api.wiktionary)
-        , case model.page of
-            Auth _ ->
-                Sub.none
-
-            Mining subModel ->
-                Sub.map
-                    (GotPageMsg << GotMiningMsg)
-                    (Mining.subscriptions subModel)
+        [ apiSubscriptions model.api
+        , pageSubscriptions model.page
         ]
+
+
+subscribeApi : (msg -> ApiMsg) -> (model -> Sub msg) -> model -> Sub Msg
+subscribeApi toMsg subs subModel =
+    Sub.map
+        (GotApiMsg << toMsg)
+        (subs subModel)
+
+
+subscribePage : (msg -> PageMsg) -> (model -> Sub msg) -> model -> Sub Msg
+subscribePage toMsg subs subModel =
+    Sub.map
+        (GotPageMsg << toMsg)
+        (subs subModel)
 
 
 
