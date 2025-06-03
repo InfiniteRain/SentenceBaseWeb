@@ -38,7 +38,7 @@ google paramCmd =
     Google <| SendRequest paramCmd
 
 
-googleInitialize : msg -> Action msg
+googleInitialize : (Google.InitializeUpdate -> msg) -> Action msg
 googleInitialize msg =
     Google <| Initialize msg
 
@@ -86,10 +86,10 @@ map toMsg msg =
             None
 
         Google (Initialize rootMsg) ->
-            Google (Initialize <| toMsg rootMsg)
+            Google <| Initialize <| (toMsg << rootMsg)
 
         Google (SendRequest paramCmd) ->
-            Google (SendRequest <| ParamCmd.map toMsg paramCmd)
+            Google <| SendRequest <| ParamCmd.map toMsg paramCmd
 
         Wiktionary request ->
             Wiktionary

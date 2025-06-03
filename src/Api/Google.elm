@@ -1,5 +1,7 @@
 module Api.Google exposing
     ( Action(..)
+    , InitializeFailure(..)
+    , InitializeUpdate(..)
     , Model
     , Msg(..)
     , init
@@ -23,7 +25,7 @@ import TaskPort
 type alias Model rootMsg =
     { state : State
     , requestQueue : List (ParamCmd rootMsg)
-    , initializeMsg : Maybe rootMsg
+    , initializeMsg : Maybe (InitializeUpdate -> rootMsg)
     , appFolderId : String
     , mainSheetId : String
     }
@@ -59,10 +61,26 @@ type Msg rootMsg
     | GotAuthenticationResult (TaskPort.Result String)
     | SentAction (Action rootMsg)
     | GotActionResponse rootMsg
-    | GotFindAppFolderResponse (Result Requests.Error Requests.DriveResponseFileList)
-    | GotCreateAppFolderResponse (Result Requests.Error Requests.DriveResponseFileCreate)
-    | GotFindMainSheetResponse (Result Requests.Error Requests.DriveResponseFileList)
-    | GotCreateMainSheetResponse (Result Requests.Error Requests.DriveResponseFileCreate)
+    | GotFindAppFolderResponse
+        (Result
+            Requests.Error
+            Requests.DriveResponseFileList
+        )
+    | GotCreateAppFolderResponse
+        (Result
+            Requests.Error
+            Requests.DriveResponseFileCreate
+        )
+    | GotFindMainSheetResponse
+        (Result
+            Requests.Error
+            Requests.DriveResponseFileList
+        )
+    | GotCreateMainSheetResponse
+        (Result
+            Requests.Error
+            Requests.DriveResponseFileCreate
+        )
     | GotMigrationMsg Migration.Msg
 
 
@@ -72,35 +90,23 @@ update :
     -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
 update msg model =
     case ( model.state, msg ) of
-        ( Uninitialized, SentAction (Initialize rootMsg) ) ->
-            ( { model | state = Initializing, initializeMsg = Just rootMsg }
+        ( Uninitialized, SentAction (Initialize toMsg) ) ->
+            ( { model | state = Initializing, initializeMsg = Just toMsg }
             , Task.attempt GotInitializedResult Port.googleInitialize
-            , OutMsg.none
-            )
-
-        ( Uninitialized, SentAction (SendRequest paramCmd) ) ->
-            ( { model
-                | state = Initializing
-                , requestQueue = model.requestQueue ++ [ paramCmd ]
-              }
-            , Task.attempt GotInitializedResult Port.googleInitialize
-            , OutMsg.none
+            , sendInitializationUpdate InitializingApi toMsg
             )
 
         ( Initializing, GotInitializedResult (Ok ()) ) ->
             ( { model | state = Authenticating }
             , Task.attempt GotAuthenticationResult Port.googleGetToken
-            , OutMsg.none
+            , maybeSendInitializationUpdate model AuthenticatingApi
             )
 
         ( Initializing, GotInitializedResult (Err err) ) ->
-            let
-                _ =
-                    Debug.log "google initialize error" err
-            in
             ( { model | state = Uninitialized }
             , Cmd.none
-            , OutMsg.none
+            , maybeSendInitializationUpdate model
+                (Failed <| ApiInitialization err)
             )
 
         ( Authenticating, GotAuthenticationResult (Ok _) ) ->
@@ -108,17 +114,14 @@ update msg model =
             , Requests.findAppFoldersRequest
                 |> Requests.buildTask
                 |> Task.attempt GotFindAppFolderResponse
-            , OutMsg.none
+            , maybeSendInitializationUpdate model LocatingAppFolder
             )
 
         ( Authenticating, GotAuthenticationResult (Err err) ) ->
-            let
-                _ =
-                    Debug.log "google authentication error" err
-            in
             ( { model | state = Uninitialized }
             , Cmd.none
-            , OutMsg.none
+            , maybeSendInitializationUpdate model
+                (Failed <| ApiAuthentication err)
             )
 
         ( SettingUpAppFolder, GotFindAppFolderResponse (Ok response) ) ->
@@ -128,7 +131,7 @@ update msg model =
                     , Requests.findMainSheetRequest file.id
                         |> Requests.buildTask
                         |> Task.attempt GotFindMainSheetResponse
-                    , OutMsg.none
+                    , maybeSendInitializationUpdate model LocatingMainSheet
                     )
 
                 [] ->
@@ -136,22 +139,30 @@ update msg model =
                     , Requests.createAppFolderRequest
                         |> Requests.buildTask
                         |> Task.attempt GotCreateAppFolderResponse
-                    , OutMsg.none
+                    , maybeSendInitializationUpdate model CreatingMainSheet
                     )
 
-        ( SettingUpAppFolder, GotFindAppFolderResponse (Err _) ) ->
-            ( { model | state = Uninitialized }, Cmd.none, OutMsg.none )
+        ( SettingUpAppFolder, GotFindAppFolderResponse (Err err) ) ->
+            ( { model | state = Uninitialized }
+            , Cmd.none
+            , maybeSendInitializationUpdate model
+                (Failed <| AppFolderLocation err)
+            )
 
         ( SettingUpAppFolder, GotCreateAppFolderResponse (Ok response) ) ->
             ( { model | appFolderId = response.id }
             , Requests.createMainSheetRequest response.id
                 |> Requests.buildTask
                 |> Task.attempt GotCreateMainSheetResponse
-            , OutMsg.none
+            , maybeSendInitializationUpdate model CreatingMainSheet
             )
 
-        ( SettingUpAppFolder, GotCreateAppFolderResponse (Err _) ) ->
-            ( { model | state = Uninitialized }, Cmd.none, OutMsg.none )
+        ( SettingUpAppFolder, GotCreateAppFolderResponse (Err err) ) ->
+            ( { model | state = Uninitialized }
+            , Cmd.none
+            , maybeSendInitializationUpdate model
+                (Failed <| AppFolderCreation err)
+            )
 
         ( SettingUpAppFolder, GotFindMainSheetResponse (Ok response) ) ->
             case response.files of
@@ -164,17 +175,25 @@ update msg model =
                         model.appFolderId
                         |> Requests.buildTask
                         |> Task.attempt GotCreateMainSheetResponse
-                    , OutMsg.none
+                    , maybeSendInitializationUpdate model CreatingMainSheet
                     )
 
-        ( SettingUpAppFolder, GotFindMainSheetResponse (Err _) ) ->
-            ( { model | state = Uninitialized }, Cmd.none, OutMsg.none )
+        ( SettingUpAppFolder, GotFindMainSheetResponse (Err err) ) ->
+            ( { model | state = Uninitialized }
+            , Cmd.none
+            , maybeSendInitializationUpdate model
+                (Failed <| MainSheetLocation err)
+            )
 
         ( SettingUpAppFolder, GotCreateMainSheetResponse (Ok response) ) ->
             transitionToMigrating { model | mainSheetId = response.id }
 
-        ( SettingUpAppFolder, GotCreateMainSheetResponse (Err _) ) ->
-            ( { model | state = Uninitialized }, Cmd.none, OutMsg.none )
+        ( SettingUpAppFolder, GotCreateMainSheetResponse (Err err) ) ->
+            ( { model | state = Uninitialized }
+            , Cmd.none
+            , maybeSendInitializationUpdate model
+                (Failed <| MainSheetCreation err)
+            )
 
         ( Migrating migrationModel, GotMigrationMsg migrationMsg ) ->
             let
@@ -188,8 +207,26 @@ update msg model =
                     , OutMsg.none
                     )
 
-                Migration.Fail _ ->
-                    ( { model | state = Uninitialized }, Cmd.none, OutMsg.none )
+                Migration.Update migrationId ->
+                    ( { model | state = Migrating newMigrationModel }
+                    , Cmd.map GotMigrationMsg migrationCmd
+                    , maybeSendInitializationUpdate model
+                        (MigratingMainSheet migrationId)
+                    )
+
+                Migration.Fail err ->
+                    ( { model | state = Uninitialized }
+                    , Cmd.none
+                    , maybeSendInitializationUpdate model
+                        (Failed <|
+                            MainSheetMigration
+                                (List.head migrationModel.migrationQueue
+                                    |> Maybe.map .id
+                                    |> Maybe.withDefault "unknown"
+                                )
+                                err
+                        )
+                    )
 
                 Migration.Done ->
                     transitionToReady model
@@ -254,7 +291,7 @@ transitionToMigrating model =
     in
     ( { model | state = Migrating migrationModel }
     , Cmd.map GotMigrationMsg migrationCmd
-    , OutMsg.none
+    , maybeSendInitializationUpdate model CheckingMainSheetMigrations
     )
 
 
@@ -267,18 +304,32 @@ transitionToReady model =
             ( { model | state = Ready }
             , request model.mainSheetId
                 |> Cmd.map GotActionResponse
-            , model.initializeMsg
-                |> Maybe.map OutMsg.some
-                |> Maybe.withDefault OutMsg.none
+            , maybeSendInitializationUpdate model Done
             )
 
         [] ->
             ( { model | state = Ready }
             , Cmd.none
-            , model.initializeMsg
-                |> Maybe.map OutMsg.some
-                |> Maybe.withDefault OutMsg.none
+            , maybeSendInitializationUpdate model Done
             )
+
+
+maybeSendInitializationUpdate :
+    Model rootMsg
+    -> InitializeUpdate
+    -> OutMsg rootMsg
+maybeSendInitializationUpdate model initializeUpdate =
+    model.initializeMsg
+        |> Maybe.map (sendInitializationUpdate initializeUpdate)
+        |> Maybe.withDefault OutMsg.none
+
+
+sendInitializationUpdate :
+    InitializeUpdate
+    -> (InitializeUpdate -> rootMsg)
+    -> OutMsg rootMsg
+sendInitializationUpdate initializeUpdate toMsg =
+    OutMsg.some <| toMsg <| initializeUpdate
 
 
 
@@ -295,5 +346,28 @@ subscriptions _ =
 
 
 type Action msg
-    = Initialize msg
+    = Initialize (InitializeUpdate -> msg)
     | SendRequest (ParamCmd msg)
+
+
+type InitializeUpdate
+    = InitializingApi
+    | AuthenticatingApi
+    | LocatingAppFolder
+    | CreatingAppFolder
+    | LocatingMainSheet
+    | CreatingMainSheet
+    | CheckingMainSheetMigrations
+    | MigratingMainSheet String
+    | Done
+    | Failed InitializeFailure
+
+
+type InitializeFailure
+    = ApiInitialization TaskPort.Error
+    | ApiAuthentication TaskPort.Error
+    | AppFolderLocation Requests.Error
+    | AppFolderCreation Requests.Error
+    | MainSheetLocation Requests.Error
+    | MainSheetCreation Requests.Error
+    | MainSheetMigration String Requests.Error

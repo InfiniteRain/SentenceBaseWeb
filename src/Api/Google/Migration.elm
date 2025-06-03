@@ -109,6 +109,7 @@ type Msg
 
 type OutMsg
     = None
+    | Update String
     | Fail Requests.Error
     | Done
 
@@ -159,7 +160,7 @@ update msg model =
                         nextMigration :: _ ->
                             ( { model | migrationQueue = newQueue }
                             , nextMigration.initialCmd
-                            , None
+                            , Update nextMigration.id
                             )
 
                         [] ->
@@ -179,7 +180,7 @@ update msg model =
                 nextMigration :: _ ->
                     ( model
                     , nextMigration.initialCmd
-                    , None
+                    , Update nextMigration.id
                     )
 
                 [] ->
