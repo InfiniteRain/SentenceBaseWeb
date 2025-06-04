@@ -109,19 +109,18 @@ extractAppliedMigrations sheetData =
         |> Maybe.andThen .rowData
         |> Maybe.withDefault []
         |> List.map
-            (\{ values } ->
-                values
-                    |> Maybe.andThen List.head
-                    |> Maybe.andThen .effectiveValue
-                    |> Maybe.andThen
-                        (\value ->
-                            case value of
-                                Requests.String string ->
-                                    Just string
+            (.values
+                >> Maybe.andThen List.head
+                >> Maybe.andThen .effectiveValue
+                >> Maybe.andThen
+                    (\value ->
+                        case value of
+                            Requests.String string ->
+                                Just string
 
-                                _ ->
-                                    Nothing
-                        )
+                            _ ->
+                                Nothing
+                    )
             )
         |> List.filterMap identity
         |> Set.fromList
