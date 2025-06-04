@@ -72,6 +72,8 @@ type Msg
         )
     | Selected Int
     | Deselected Int
+    | ConfirmBatchClicked
+    | UuidReceived String
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
@@ -117,6 +119,16 @@ update msg model =
             , Cmd.none
             , Action.none
             )
+
+        ConfirmBatchClicked ->
+            ( model, Cmd.none, Action.uuid UuidReceived )
+
+        UuidReceived uuid ->
+            let
+                _ =
+                    Debug.log "uuid" uuid
+            in
+            ( model, Cmd.none, Action.none )
 
 
 getPendingSentencesRequest : ParamTask Requests.Error (Array PendingSentence)
@@ -218,7 +230,10 @@ view model =
                     )
                 )
             , hr [] []
-            , button [ disabled (not <| isSelectionComplete model) ]
+            , button
+                [ disabled (not <| isSelectionComplete model)
+                , onClick ConfirmBatchClicked
+                ]
                 [ text "Confirm batch" ]
             ]
     }

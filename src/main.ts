@@ -149,6 +149,20 @@ TaskPort.register("readClipboard", async () => {
   } catch {}
 });
 
+const getRandomInts = (n: number) => {
+  const randInts = new Uint32Array(n);
+  crypto.getRandomValues(randInts);
+  return Array.from(randInts);
+};
+
+const randomInts = getRandomInts(4);
+
 Elm.Main.init({
   node: document.getElementById("app"),
+  flags: {
+    seed1: randomInts[0],
+    seed2: randomInts[1],
+    seed3: randomInts[2],
+    seed4: randomInts[3],
+  },
 });

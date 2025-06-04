@@ -5,6 +5,7 @@ module Api.Action exposing
     , map
     , match
     , none
+    , uuid
     , wiktionary
     )
 
@@ -22,6 +23,7 @@ type Action msg
     = None
     | Google (Google.Action msg)
     | Wiktionary (Wiktionary.RequestConfig msg)
+    | Uuid (String -> msg)
 
 
 
@@ -51,6 +53,11 @@ wiktionary toMsg word =
     Wiktionary <| { word = word, toMsg = toMsg }
 
 
+uuid : (String -> msg) -> Action msg
+uuid toMsg =
+    Uuid toMsg
+
+
 
 -- ACCESSORS
 
@@ -61,9 +68,10 @@ match :
         { onNone : a
         , onGoogle : Google.Action msg -> a
         , onWiktionary : Wiktionary.RequestConfig msg -> a
+        , onUuid : (String -> msg) -> a
         }
     -> a
-match action { onNone, onGoogle, onWiktionary } =
+match action { onNone, onGoogle, onWiktionary, onUuid } =
     case action of
         None ->
             onNone
@@ -73,6 +81,9 @@ match action { onNone, onGoogle, onWiktionary } =
 
         Wiktionary request ->
             onWiktionary request
+
+        Uuid toMsg ->
+            onUuid toMsg
 
 
 
@@ -96,3 +107,6 @@ map toMsg msg =
                 { word = request.word
                 , toMsg = request.toMsg >> toMsg
                 }
+
+        Uuid uuidToMsg ->
+            Uuid (uuidToMsg >> toMsg)

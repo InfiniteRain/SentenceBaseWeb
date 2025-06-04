@@ -3,6 +3,7 @@ module Main exposing (..)
 import Api.Action as Action exposing (Action)
 import Api.Google as Google exposing (Msg(..))
 import Api.Google.Constants exposing (SubSheet(..))
+import Api.Uuid as Uuid
 import Api.Wiktionary as Wiktionary exposing (Msg(..))
 import Browser
 import Browser.Navigation as Nav
@@ -12,9 +13,11 @@ import OutMsg exposing (OutMsg)
 import Page.Auth as Auth exposing (Msg(..))
 import Page.Mining as Mining exposing (Msg(..))
 import Page.PendingSentences as PendingSentences
+import Random
 import Route exposing (Route(..))
 import Session exposing (Session)
 import Triple
+import UUID as UuidLib
 import Url exposing (Url)
 
 
@@ -25,11 +28,13 @@ import Url exposing (Url)
 type ApiMsg
     = GotGoogleMsg (Google.Msg Msg)
     | GotWiktionaryMsg (Wiktionary.Msg Msg)
+    | GotUuidMsg (Uuid.Msg Msg)
 
 
 type alias ApiModel =
     { google : Google.Model Msg
     , wiktionary : Wiktionary.Model Msg
+    , uuid : Uuid.Model
     }
 
 
@@ -52,22 +57,40 @@ updateApi apiMsg apiModel =
                 GotWiktionaryMsg
                 (\model -> { apiModel | wiktionary = model })
 
+        GotUuidMsg subMsg ->
+            updateWithApi
+                subMsg
+                apiModel.uuid
+                Uuid.update
+                GotUuidMsg
+                (\model -> { apiModel | uuid = model })
 
-initApi : ( ApiModel, Cmd Msg )
-initApi =
+
+initApi : InitialSeeds -> ( ApiModel, Cmd Msg )
+initApi initialSeeds =
     let
         ( googleModel, googleCmd ) =
             Google.init ()
 
         ( wiktionaryModel, wiktionaryCmd ) =
             Wiktionary.init ()
+
+        ( uuidModel, uuidCmd ) =
+            Uuid.init <|
+                UuidLib.Seeds
+                    (Random.initialSeed initialSeeds.seed1)
+                    (Random.initialSeed initialSeeds.seed2)
+                    (Random.initialSeed initialSeeds.seed3)
+                    (Random.initialSeed initialSeeds.seed4)
     in
     ( { google = googleModel
       , wiktionary = wiktionaryModel
+      , uuid = uuidModel
       }
     , Cmd.batch
         [ initApiCmd GotGoogleMsg googleCmd
         , initApiCmd GotWiktionaryMsg wiktionaryCmd
+        , initApiCmd GotUuidMsg uuidCmd
         ]
     )
 
@@ -83,6 +106,10 @@ apiSubscriptions apiModel =
             GotWiktionaryMsg
             Wiktionary.subscriptions
             apiModel.wiktionary
+        , subscribeApi
+            GotUuidMsg
+            Uuid.subscriptions
+            apiModel.uuid
         ]
 
 
@@ -232,11 +259,11 @@ type alias Model =
     }
 
 
-init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
-init _ url navKey =
+init : InitialSeeds -> Url -> Nav.Key -> ( Model, Cmd Msg )
+init seeds url navKey =
     let
         ( apiModel, apiCmd ) =
-            initApi
+            initApi seeds
 
         session =
             Session.create navKey
@@ -376,6 +403,11 @@ performApiAction model action =
                             Wiktionary.SentRequest request
                     )
                     model
+        , onUuid =
+            \toMsg ->
+                update
+                    (GotApiMsg <| GotUuidMsg <| Uuid.SentRequest toMsg)
+                    model
         }
 
 
@@ -505,7 +537,15 @@ viewWithPage toMsg viewFn subModel =
 -- MAIN
 
 
-main : Program () Model Msg
+type alias InitialSeeds =
+    { seed1 : Int
+    , seed2 : Int
+    , seed3 : Int
+    , seed4 : Int
+    }
+
+
+main : Program InitialSeeds Model Msg
 main =
     Browser.application
         { init = init
