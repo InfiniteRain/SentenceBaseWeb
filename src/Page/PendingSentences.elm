@@ -12,7 +12,10 @@ import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.ParamTask as ParamTask exposing (ParamTask)
 import Api.Google.Requests as Requests
     exposing
-        ( field
+        ( SheetRequestBatchUpdateKind(..)
+        , SheetRequestDimension(..)
+        , SheetRequestExtendedValue(..)
+        , field
         , maybeConstruct
         , stringValue
         )
@@ -36,7 +39,13 @@ type alias Model =
     , pendingSentences : Array PendingSentence
     , selectedSentences : Array Int
     , deselectedSentences : Array Int
+    , confirmBatchRequesState : ConfirmBatchRequesState
     }
+
+
+type ConfirmBatchRequesState
+    = Idle
+    | Loading
 
 
 type alias PendingSentence =
@@ -53,6 +62,7 @@ init session =
       , pendingSentences = Array.empty
       , selectedSentences = Array.empty
       , deselectedSentences = Array.empty
+      , confirmBatchRequesState = Idle
       }
     , Cmd.none
     , ParamTask.attempt ReceivedPendingSentencesList getPendingSentencesRequest
@@ -74,6 +84,7 @@ type Msg
     | Deselected Int
     | ConfirmBatchClicked
     | UuidReceived String
+    | BatchConfirmed (Result Requests.Error ())
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
@@ -121,14 +132,42 @@ update msg model =
             )
 
         ConfirmBatchClicked ->
-            ( model, Cmd.none, Action.uuid UuidReceived )
+            ( { model | confirmBatchRequesState = Loading }
+            , Cmd.none
+            , Action.uuid UuidReceived
+            )
 
         UuidReceived uuid ->
-            let
-                _ =
-                    Debug.log "uuid" uuid
-            in
-            ( model, Cmd.none, Action.none )
+            ( model
+            , Cmd.none
+            , confirmBatchRequest
+                { pendingSentences = model.pendingSentences
+                , selectedSentences = model.selectedSentences
+                , deselectedSentences = model.deselectedSentences
+                , batchId = uuid
+                }
+                |> ParamTask.attempt BatchConfirmed
+                |> Action.google
+            )
+
+        BatchConfirmed (Ok _) ->
+            ( { model
+                | confirmBatchRequesState = Idle
+                , pendingSentences = Array.empty
+                , selectedSentences = Array.empty
+                , deselectedSentences = Array.empty
+              }
+            , Cmd.none
+            , Action.none
+            )
+
+        BatchConfirmed (Err _) ->
+            ( { model
+                | confirmBatchRequesState = Idle
+              }
+            , Cmd.none
+            , Action.none
+            )
 
 
 getPendingSentencesRequest : ParamTask Requests.Error (Array PendingSentence)
@@ -191,6 +230,92 @@ maybeConstructPendingSentence row =
             )
 
 
+confirmBatchRequest :
+    { pendingSentences : Array PendingSentence
+    , selectedSentences : Array Int
+    , deselectedSentences : Array Int
+    , batchId : String
+    }
+    -> ParamTask Requests.Error ()
+confirmBatchRequest config sheetId =
+    let
+        { pendingSentences, selectedSentences, deselectedSentences, batchId } =
+            config
+
+        selectedPendingSentences =
+            sentencesFromIndexes
+                selectedSentences
+                pendingSentences
+
+        deselectedPendingSentences =
+            sentencesFromIndexes
+                deselectedSentences
+                pendingSentences
+    in
+    Time.now
+        |> Task.andThen
+            (\time ->
+                Requests.sheetBatchUpdateRequest
+                    [ AppendCells
+                        { sheetId = Constants.subSheetId MinedSentences
+                        , rows =
+                            selectedPendingSentences
+                                |> List.map
+                                    (\( _, { word, sentence, tags } ) ->
+                                        [ StringValue word
+                                        , StringValue sentence
+                                        , Requests.tagsExtendedValue tags
+                                        , StringValue batchId
+                                        , Requests.iso8601ExtendedValue time
+                                        ]
+                                    )
+                                |> Requests.sheetRequestRows
+                        , fields = "userEnteredValue"
+                        }
+                    , AppendCells
+                        { sheetId = Constants.subSheetId MinedWords
+                        , rows =
+                            selectedPendingSentences
+                                |> List.map
+                                    (\( _, { word } ) ->
+                                        [ StringValue word
+                                        , Requests.iso8601ExtendedValue time
+                                        ]
+                                    )
+                                |> Requests.sheetRequestRows
+                        , fields = "userEnteredValue"
+                        }
+                    , AppendCells
+                        { sheetId = Constants.subSheetId BacklogSentences
+                        , rows =
+                            deselectedPendingSentences
+                                |> List.map
+                                    (\( _, { word, sentence, tags } ) ->
+                                        [ StringValue word
+                                        , StringValue sentence
+                                        , Requests.tagsExtendedValue tags
+                                        , Requests.iso8601ExtendedValue time
+                                        ]
+                                    )
+                                |> Requests.sheetRequestRows
+                        , fields = "userEnteredValue"
+                        }
+                    , DeleteRange
+                        { range =
+                            { sheetId = Constants.subSheetId PendingSentences
+                            , startRowIndex = Just 1
+                            , endRowIndex = Nothing
+                            , startColumnIndex = Just 0
+                            , endColumnIndex = Just 4
+                            }
+                        , dimension = Rows
+                        }
+                    ]
+                    sheetId
+                    |> Requests.buildTask
+            )
+
+
 
 -- SUBSCRIPTIONS
 
@@ -214,7 +339,12 @@ view model =
                     model.selectedSentences
                     model.pendingSentences
                     Deselected
-                    Enabled
+                    (if model.confirmBatchRequesState == Loading then
+                        Disabled
+
+                     else
+                        Enabled
+                    )
                 )
             , hr [] []
             , ul []
@@ -222,7 +352,11 @@ view model =
                     model.deselectedSentences
                     model.pendingSentences
                     Selected
-                    (if isSelectionComplete model then
+                    (if
+                        isSelectionComplete model
+                            || model.confirmBatchRequesState
+                            == Loading
+                     then
                         Disabled
 
                      else
@@ -231,7 +365,11 @@ view model =
                 )
             , hr [] []
             , button
-                [ disabled (not <| isSelectionComplete model)
+                [ disabled <|
+                    (not (isSelectionComplete model)
+                        || model.confirmBatchRequesState
+                        == Loading
+                    )
                 , onClick ConfirmBatchClicked
                 ]
                 [ text "Confirm batch" ]
@@ -251,14 +389,7 @@ viewSentences :
     -> Ableness
     -> List (Html Msg)
 viewSentences indexes pendingSentences onButtonClick ableness =
-    indexes
-        |> Array.toList
-        |> List.map
-            (\index ->
-                Array.get index pendingSentences
-                    |> Maybe.map (\sentence -> ( index, sentence ))
-            )
-        |> List.filterMap identity
+    sentencesFromIndexes indexes pendingSentences
         |> List.map
             (\( index, { word, sentence } ) ->
                 li []
@@ -271,6 +402,21 @@ viewSentences indexes pendingSentences onButtonClick ableness =
                         [ text "<>" ]
                     ]
             )
+
+
+sentencesFromIndexes :
+    Array Int
+    -> Array PendingSentence
+    -> List ( Int, PendingSentence )
+sentencesFromIndexes indexes pendingSentences =
+    indexes
+        |> Array.toList
+        |> List.map
+            (\index ->
+                Array.get index pendingSentences
+                    |> Maybe.map (\sentence -> ( index, sentence ))
+            )
+        |> List.filterMap identity
 
 
 isSelectionComplete : Model -> Bool

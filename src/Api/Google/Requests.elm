@@ -22,11 +22,14 @@ module Api.Google.Requests exposing
     , getSubSheetDataRequest
     , httpRequest
     , httpTask
+    , iso8601ExtendedValue
     , maybeConstruct
     , numberValue
     , sheetBatchUpdateRequest
     , sheetRequestRow
+    , sheetRequestRows
     , stringValue
+    , tagsExtendedValue
     )
 
 import Api.Google.Constants as Constants
@@ -35,11 +38,13 @@ import Api.Google.Constants as Constants
         , SpecialFile(..)
         )
 import Http exposing (Error(..))
+import Iso8601
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
 import Port
 import Task
 import TaskPort
+import Time
 import Url.Builder exposing (QueryParameter, crossOrigin, string)
 
 
@@ -470,6 +475,10 @@ type SheetRequestBatchUpdateKind
         , fields : String
         , range : SheetRequestDimensionRange
         }
+    | DeleteRange
+        { range : SheetRequestGridRange
+        , dimension : SheetRequestDimension
+        }
 
 
 sheetRequestBatchUpdateKindEncoder : SheetRequestBatchUpdateKind -> Encode.Value
@@ -528,6 +537,18 @@ sheetRequestBatchUpdateKindEncoder kind =
                           )
                         , ( "fields", Encode.string fields )
                         , ( "range", sheetRequestDimensionRangeEncoder range )
+                        ]
+                  )
+                ]
+
+            DeleteRange { range, dimension } ->
+                [ ( "deleteRange"
+                  , Encode.object
+                        [ ( "range", sheetRequestGridRangeEncoder range )
+                        , ( "shiftDimension"
+                          , sheetRequestDimensionEncoder
+                                dimension
+                          )
                         ]
                   )
                 ]
@@ -946,14 +967,24 @@ validationFormula columns =
 
 sheetRequestRow : List SheetRequestExtendedValue -> List SheetRequestRowData
 sheetRequestRow values =
-    [ { values =
-            List.map
-                (\value ->
-                    { userEnteredValue = value }
-                )
-                values
-      }
-    ]
+    sheetRequestRows [ values ]
+
+
+sheetRequestRows :
+    List (List SheetRequestExtendedValue)
+    -> List SheetRequestRowData
+sheetRequestRows rows =
+    List.map
+        (\values ->
+            { values =
+                List.map
+                    (\value ->
+                        { userEnteredValue = value }
+                    )
+                    values
+            }
+        )
+        rows
 
 
 
@@ -1013,3 +1044,19 @@ formulaValue { effectiveValue } =
 
         _ ->
             Nothing
+
+
+tagsExtendedValue : List String -> SheetRequestExtendedValue
+tagsExtendedValue tags =
+    StringValue <| encodeTags tags
+
+
+iso8601ExtendedValue : Time.Posix -> SheetRequestExtendedValue
+iso8601ExtendedValue time =
+    StringValue <| Iso8601.fromTime time
+
+
+encodeTags : List String -> String
+encodeTags tags =
+    Encode.list Encode.string tags
+        |> Encode.encode 0

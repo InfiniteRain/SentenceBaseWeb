@@ -7,16 +7,13 @@ import Api.Google.Requests as Requests
     exposing
         ( SheetRequestBatchUpdateKind(..)
         , SheetRequestExtendedValue(..)
-        , sheetRequestRow
         )
 import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
 import Html exposing (Attribute, Html, br, button, div, input, li, span, text, ul)
 import Html.Attributes exposing (class, disabled, style, type_, value)
 import Html.Events exposing (onClick, onInput, stopPropagationOn)
 import Http
-import Iso8601
 import Json.Decode as Decode
-import Json.Encode as Encode
 import Port
 import Regex
 import RegexExtra
@@ -112,18 +109,21 @@ update msg model =
             )
 
         DefinitionFetched result ->
-            case result of
-                Ok definition ->
+            case ( result, model.selectedWord ) of
+                ( Ok definition, Just _ ) ->
                     ( { model | definitionState = Fetched definition }
                     , Cmd.none
                     , Action.none
                     )
 
-                Err _ ->
+                ( Err _, Just _ ) ->
                     ( { model | definitionState = NotFound }
                     , Cmd.none
                     , Action.none
                     )
+
+                _ ->
+                    ( model, Cmd.none, Action.none )
 
         BodyClicked ->
             ( model
@@ -181,11 +181,11 @@ addPendingSentenceRequest { word, sentence, tags } sheetId =
                     [ AppendCells
                         { sheetId = Constants.subSheetId PendingSentences
                         , rows =
-                            sheetRequestRow
+                            Requests.sheetRequestRow
                                 [ StringValue word
                                 , StringValue sentence
-                                , StringValue <| encodeTags tags
-                                , StringValue <| Iso8601.fromTime time
+                                , Requests.tagsExtendedValue tags
+                                , Requests.iso8601ExtendedValue time
                                 ]
                         , fields = "userEnteredValue"
                         }
@@ -193,12 +193,6 @@ addPendingSentenceRequest { word, sentence, tags } sheetId =
                     sheetId
                     |> Requests.buildTask
             )
-
-
-encodeTags : List String -> String
-encodeTags tags =
-    Encode.list Encode.string tags
-        |> Encode.encode 0
 
 
 

@@ -132,7 +132,7 @@ columnSize column =
             500
 
         Tags ->
-            350
+            150
 
         Id ->
-            75
+            300
