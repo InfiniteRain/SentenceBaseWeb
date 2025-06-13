@@ -11,25 +11,19 @@ module Api.Google.Requests exposing
     , SubSheet
     , Task
     , addSubSheetRequests
-    , boolValue
     , buildTask
     , createAppFolderRequest
     , createMainSheetRequest
-    , field
     , findAppFoldersRequest
     , findMainSheetRequest
-    , formulaValue
     , getAppFolderId
     , getSubSheetDataRequest
     , httpRequest
     , httpTask
     , iso8601ExtendedValue
-    , maybeConstruct
-    , numberValue
     , sheetBatchUpdateRequest
     , sheetRequestRow
     , sheetRequestRows
-    , stringValue
     , tagsExtendedValue
     )
 
@@ -1005,61 +999,6 @@ sheetRequestRows rows =
 
 
 -- HELPERS
-
-
-maybeConstruct : (a -> b) -> Maybe (a -> b)
-maybeConstruct fn =
-    Just fn
-
-
-field : Maybe a -> Maybe (a -> b) -> Maybe b
-field maybeConstr maybeFn =
-    case ( maybeConstr, maybeFn ) of
-        ( Just constr, Just fn ) ->
-            Just <| fn constr
-
-        _ ->
-            Nothing
-
-
-numberValue : SheetResponseCellData -> Maybe Float
-numberValue { effectiveValue } =
-    case effectiveValue of
-        Just (Number float) ->
-            Just float
-
-        _ ->
-            Nothing
-
-
-stringValue : SheetResponseCellData -> Maybe String
-stringValue { effectiveValue } =
-    case effectiveValue of
-        Just (String string) ->
-            Just string
-
-        _ ->
-            Nothing
-
-
-boolValue : SheetResponseCellData -> Maybe Bool
-boolValue { effectiveValue } =
-    case effectiveValue of
-        Just (Bool bool) ->
-            Just bool
-
-        _ ->
-            Nothing
-
-
-formulaValue : SheetResponseCellData -> Maybe String
-formulaValue { effectiveValue } =
-    case effectiveValue of
-        Just (Formula formula) ->
-            Just formula
-
-        _ ->
-            Nothing
 
 
 tagsExtendedValue : List String -> SheetRequestExtendedValue

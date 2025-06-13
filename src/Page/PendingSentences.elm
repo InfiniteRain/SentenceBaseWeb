@@ -9,15 +9,13 @@ module Page.PendingSentences exposing
 
 import Api.Action as Action exposing (Action)
 import Api.Google.Constants as Constants exposing (SubSheet(..))
+import Api.Google.ListConstructor as ListConstructor exposing (ListConstructor, cellStringValue, constructFromList, extract, field)
 import Api.Google.ParamTask as ParamTask exposing (ParamTask)
 import Api.Google.Requests as Requests
     exposing
         ( SheetRequestBatchUpdateKind(..)
         , SheetRequestDimension(..)
         , SheetRequestExtendedValue(..)
-        , field
-        , maybeConstruct
-        , stringValue
         )
 import Array exposing (Array)
 import Html exposing (Html, button, div, hr, li, span, text, ul)
@@ -191,7 +189,6 @@ getPendingSentencesRequest =
                 >> List.map
                     (.values
                         >> Maybe.withDefault []
-                        >> Array.fromList
                         >> maybeConstructPendingSentence
                     )
                 >> List.filterMap identity
@@ -200,34 +197,23 @@ getPendingSentencesRequest =
 
 
 maybeConstructPendingSentence :
-    Array Requests.SheetResponseCellData
+    List Requests.SheetResponseCellData
     -> Maybe PendingSentence
 maybeConstructPendingSentence row =
-    maybeConstruct PendingSentence
+    constructFromList PendingSentence row
+        |> field cellStringValue
+        |> field cellStringValue
         |> field
-            (row
-                |> Array.get 0
-                |> Maybe.andThen stringValue
+            (cellStringValue
+                >> Maybe.map (Decode.decodeString (Decode.list Decode.string))
+                >> Maybe.andThen Result.toMaybe
             )
         |> field
-            (row
-                |> Array.get 1
-                |> Maybe.andThen stringValue
+            (cellStringValue
+                >> Maybe.map Iso8601.toTime
+                >> Maybe.andThen Result.toMaybe
             )
-        |> field
-            (row
-                |> Array.get 2
-                |> Maybe.andThen stringValue
-                |> Maybe.map (Decode.decodeString (Decode.list Decode.string))
-                |> Maybe.andThen Result.toMaybe
-            )
-        |> field
-            (row
-                |> Array.get 3
-                |> Maybe.andThen stringValue
-                |> Maybe.map Iso8601.toTime
-                |> Maybe.andThen Result.toMaybe
-            )
+        |> extract
 
 
 confirmBatchRequest :

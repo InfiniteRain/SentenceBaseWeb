@@ -268,6 +268,8 @@ view model =
                 , [ br [] [] ]
                 , [ br [] [] ]
                 , [ div [] [ text "wij hebben een serieus probleem" ] ]
+                , [ div [] [ text "geef me een klap papa" ] ]
+                , [ div [] [ text "kan je 't goed zien?" ] ]
                 ]
             )
     }
