@@ -11,7 +11,8 @@ module Api.Google.Constants exposing
 
 
 type SubSheet
-    = Migrations
+    = Query
+    | Migrations
     | PendingSentences
     | MinedSentences
     | MinedWords
@@ -21,6 +22,9 @@ type SubSheet
 subSheetId : SubSheet -> Int
 subSheetId subSheet =
     case subSheet of
+        Query ->
+            0
+
         Migrations ->
             100
 

@@ -8,6 +8,7 @@ module Api.Google.Requests exposing
     , SheetResponseCellData
     , SheetResponseCellExtendedData(..)
     , SheetResponseGetSubSheetData
+    , SubSheet
     , Task
     , addSubSheetRequests
     , boolValue
@@ -479,6 +480,10 @@ type SheetRequestBatchUpdateKind
         { range : SheetRequestGridRange
         , dimension : SheetRequestDimension
         }
+    | UpdateSheetProperties
+        { properties : SheetRequestProperties
+        , fields : String
+        }
 
 
 sheetRequestBatchUpdateKindEncoder : SheetRequestBatchUpdateKind -> Encode.Value
@@ -549,6 +554,17 @@ sheetRequestBatchUpdateKindEncoder kind =
                           , sheetRequestDimensionEncoder
                                 dimension
                           )
+                        ]
+                  )
+                ]
+
+            UpdateSheetProperties { properties, fields } ->
+                [ ( "updateSheetProperties"
+                  , Encode.object
+                        [ ( "properties"
+                          , sheetRequestPropertiesEncoder properties
+                          )
+                        , ( "fields", Encode.string fields )
                         ]
                   )
                 ]
