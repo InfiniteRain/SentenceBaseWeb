@@ -124,8 +124,8 @@ update msg ({ sheetId } as model) =
                 , Requests.sheetBatchUpdateRequest
                     [ UpdateSheetProperties
                         { properties =
-                            { sheetId = Nothing
-                            , title = Just <| querySheetName
+                            { sheetId = Just querySheetId
+                            , title = Just querySheetName
                             , gridProperties = Nothing
                             }
                         , fields = "title"
@@ -236,3 +236,8 @@ columnSize column =
 querySheetName : String
 querySheetName =
     "query"
+
+
+querySheetId : Int
+querySheetId =
+    0
