@@ -5,6 +5,7 @@ module Api.Google.Requests exposing
     , SheetRequestBatchUpdateKind(..)
     , SheetRequestDimension(..)
     , SheetRequestExtendedValue(..)
+    , SheetResponseBatchUpdate
     , SheetResponseCellData
     , SheetResponseCellExtendedData(..)
     , SheetResponseGetSubSheetData
@@ -21,6 +22,7 @@ module Api.Google.Requests exposing
     , httpRequest
     , httpTask
     , iso8601ExtendedValue
+    , sheetBatchUpdateAndGetGridDataRequest
     , sheetBatchUpdateRequest
     , sheetRequestRow
     , sheetRequestRows
@@ -182,6 +184,16 @@ sheetResponseGetSubSheetDataDecoder : Decoder SheetResponseGetSubSheetData
 sheetResponseGetSubSheetDataDecoder =
     Decode.map SheetResponseGetSubSheetData
         (Decode.field "sheets" (Decode.list sheetResponseDecoder))
+
+
+type alias SheetResponseBatchUpdate =
+    { updatedSpreadsheet : SheetResponseGetSubSheetData }
+
+
+sheetResponseBatchUpdateDecoder : Decoder SheetResponseBatchUpdate
+sheetResponseBatchUpdateDecoder =
+    Decode.map SheetResponseBatchUpdate
+        (Decode.field "updatedSpreadsheet" sheetResponseGetSubSheetDataDecoder)
 
 
 
@@ -566,6 +578,9 @@ sheetRequestBatchUpdateKindEncoder kind =
 
 type alias SheetRequestBatchUpdate =
     { requests : List SheetRequestBatchUpdateKind
+    , includeSpreadsheetInResponse : Bool
+    , responseRanges : List String
+    , responseIncludeGridData : Bool
     }
 
 
@@ -576,6 +591,15 @@ sheetRequestBatchUpdateEncoder request =
           , Encode.list
                 sheetRequestBatchUpdateKindEncoder
                 request.requests
+          )
+        , ( "includeSpreadsheetInResponse"
+          , Encode.bool
+                request.includeSpreadsheetInResponse
+          )
+        , ( "responseRanges", Encode.list Encode.string request.responseRanges )
+        , ( "responseIncludeGridData"
+          , Encode.bool
+                request.responseIncludeGridData
           )
         ]
 
@@ -797,8 +821,42 @@ sheetBatchUpdateRequest kinds sheetId =
         , body =
             Http.jsonBody <|
                 sheetRequestBatchUpdateEncoder
-                    { requests = kinds }
+                    { requests = kinds
+                    , includeSpreadsheetInResponse = False
+                    , responseRanges = []
+                    , responseIncludeGridData = False
+                    }
         , resolver = jsonResolver <| Decode.succeed ()
+        }
+
+
+sheetBatchUpdateAndGetGridDataRequest :
+    List SheetRequestBatchUpdateKind
+    -> List String
+    -> String
+    -> Task SheetResponseBatchUpdate
+sheetBatchUpdateAndGetGridDataRequest kinds responseRanges sheetId =
+    httpTask
+        { method = "POST"
+        , url =
+            googleSheetsUrl
+                (googleSheetsRoute [ sheetId ++ ":batchUpdate" ])
+                [ string
+                    "fields"
+                    ("updatedSpreadsheet.sheets"
+                        ++ "(properties(sheetId,title),data.rowData"
+                        ++ ".values.effectiveValue)"
+                    )
+                ]
+        , body =
+            Http.jsonBody <|
+                sheetRequestBatchUpdateEncoder
+                    { requests = kinds
+                    , includeSpreadsheetInResponse = True
+                    , responseRanges = responseRanges
+                    , responseIncludeGridData = True
+                    }
+        , resolver = jsonResolver sheetResponseBatchUpdateDecoder
         }
 
 

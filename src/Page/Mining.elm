@@ -2,10 +2,12 @@ module Page.Mining exposing (Model, Msg(..), init, subscriptions, update, view)
 
 import Api.Action as Action exposing (Action(..))
 import Api.Google.Constants as Constants exposing (SubSheet(..))
+import Api.Google.ListConstructor as ListConstructor exposing (cellStringValue, constructFromList, extract, field)
 import Api.Google.ParamTask as ParamTask exposing (ParamTask)
 import Api.Google.Requests as Requests
     exposing
         ( SheetRequestBatchUpdateKind(..)
+        , SheetRequestDimension(..)
         , SheetRequestExtendedValue(..)
         )
 import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
@@ -13,6 +15,7 @@ import Html exposing (Attribute, Html, br, button, div, input, li, span, text, u
 import Html.Attributes exposing (class, disabled, style, type_, value)
 import Html.Events exposing (onClick, onInput, stopPropagationOn)
 import Http
+import Iso8601
 import Json.Decode as Decode
 import Port
 import Regex
@@ -152,7 +155,11 @@ update msg model =
                 |> Action.google
             )
 
-        GotAddPendingSentenceResponse _ ->
+        GotAddPendingSentenceResponse resp ->
+            let
+                _ =
+                    Debug.log "words: " resp
+            in
             ( model, Cmd.none, Action.none )
 
         OnTagsInputChanged text ->
@@ -172,12 +179,20 @@ type alias PendingSentence =
     }
 
 
-addPendingSentenceRequest : PendingSentence -> ParamTask Requests.Error ()
+type alias MinedWord =
+    { word : String
+    , mined_at : Time.Posix
+    }
+
+
+addPendingSentenceRequest :
+    PendingSentence
+    -> ParamTask Requests.Error ()
 addPendingSentenceRequest { word, sentence, tags } sheetId =
     Time.now
         |> Task.andThen
             (\time ->
-                Requests.sheetBatchUpdateRequest
+                Requests.sheetBatchUpdateAndGetGridDataRequest
                     [ AppendCells
                         { sheetId = Constants.subSheetId PendingSentences
                         , rows =
@@ -189,10 +204,96 @@ addPendingSentenceRequest { word, sentence, tags } sheetId =
                                 ]
                         , fields = "userEnteredValue"
                         }
+                    , UpdateCells
+                        { rows =
+                            Requests.sheetRequestRow
+                                [ FormulaValue
+                                    ("=QUERY("
+                                        ++ Constants.subSheetName MinedWords
+                                        ++ "!"
+                                        ++ "A2:B,"
+                                        ++ "\""
+                                        ++ "SELECT * WHERE A != \"\""
+                                        ++ String.replace "\"" "" word
+                                        ++ "\"\""
+                                        ++ "\""
+                                        ++ ")"
+                                    )
+                                ]
+                        , fields = "userEnteredValue"
+                        , range =
+                            { sheetId = Constants.subSheetId Query
+                            , startRowIndex = Just 0
+                            , endRowIndex = Just 1
+                            , startColumnIndex = Just 0
+                            , endColumnIndex = Just 1
+                            }
+                        }
                     ]
+                    [ Constants.subSheetName Query ++ "!A1:B" ]
                     sheetId
                     |> Requests.buildTask
             )
+        |> Task.map extractMinedWords
+        |> Task.andThen
+            (\mined_words ->
+                -- a fail safe for a case where the query fails for whatever
+                -- reason, so that it doesn't simply nuke the entire subsheet
+                if List.length mined_words == 0 then
+                    Task.succeed ()
+
+                else
+                    -- potential race condition can happen here if the same user
+                    -- tries to mine a word on two devices at the same time
+                    Requests.sheetBatchUpdateRequest
+                        [ UpdateCells
+                            { rows =
+                                Requests.sheetRequestRows <|
+                                    List.map
+                                        (\mined_word ->
+                                            [ StringValue mined_word.word
+                                            , StringValue <|
+                                                Iso8601.fromTime
+                                                    mined_word.mined_at
+                                            ]
+                                        )
+                                        (Debug.log "mined_words" mined_words)
+                            , fields = "userEnteredValue"
+                            , range =
+                                { sheetId = Constants.subSheetId MinedWords
+                                , startRowIndex = Just 1
+                                , endRowIndex = Nothing
+                                , startColumnIndex = Just 0
+                                , endColumnIndex = Just 2
+                                }
+                            }
+                        ]
+                        sheetId
+                        |> Requests.buildTask
+            )
+
+
+extractMinedWords : Requests.SheetResponseBatchUpdate -> List MinedWord
+extractMinedWords batchUpdate =
+    batchUpdate.updatedSpreadsheet.sheets
+        |> List.head
+        |> Maybe.map .data
+        |> Maybe.andThen List.head
+        |> Maybe.andThen .rowData
+        |> Maybe.withDefault []
+        |> List.map
+            (.values
+                >> Maybe.withDefault []
+                >> constructFromList MinedWord
+                >> field cellStringValue
+                >> field
+                    (cellStringValue
+                        >> Maybe.map Iso8601.toTime
+                        >> Maybe.andThen Result.toMaybe
+                    )
+                >> extract
+            )
+        |> List.filterMap identity
 
 
 

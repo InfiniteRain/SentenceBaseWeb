@@ -5,6 +5,7 @@ module Api.Google.Constants exposing
     , mimeTypeName
     , specialFileName
     , subSheetId
+    , subSheetName
     )
 
 -- SUB SHEET CONSTANTS
@@ -39,6 +40,28 @@ subSheetId subSheet =
 
         BacklogSentences ->
             500
+
+
+subSheetName : SubSheet -> String
+subSheetName subSheet =
+    case subSheet of
+        Query ->
+            "query"
+
+        Migrations ->
+            "migratons"
+
+        PendingSentences ->
+            "pending_sentences"
+
+        MinedSentences ->
+            "mined_sentences"
+
+        MinedWords ->
+            "mined_words"
+
+        BacklogSentences ->
+            "backlog_sentences"
 
 
 
