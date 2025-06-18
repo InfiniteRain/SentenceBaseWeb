@@ -246,43 +246,43 @@ confirmBatchRequest config =
         |> Task.andThen
             (\time ->
                 Sheets.batchUpdateRequest
-                    [ AppendCells
+                    [ RequestAppendCells
                         { sheetId = Constants.subSheetId MinedSentences
                         , rows =
                             selectedPendingSentences
                                 |> List.map
                                     (\( _, { word, sentence, tags } ) ->
-                                        [ StringValue word
-                                        , StringValue sentence
+                                        [ RequestString word
+                                        , RequestString sentence
                                         , Sheets.tagsExtendedValue tags
-                                        , StringValue batchId
+                                        , RequestString batchId
                                         , Sheets.iso8601ExtendedValue time
                                         ]
                                     )
                                 |> Sheets.sheetRequestRows
                         , fields = "userEnteredValue"
                         }
-                    , AppendCells
+                    , RequestAppendCells
                         { sheetId = Constants.subSheetId MinedWords
                         , rows =
                             selectedPendingSentences
                                 |> List.map
                                     (\( _, { word } ) ->
-                                        [ StringValue word
+                                        [ RequestString word
                                         , Sheets.iso8601ExtendedValue time
                                         ]
                                     )
                                 |> Sheets.sheetRequestRows
                         , fields = "userEnteredValue"
                         }
-                    , AppendCells
+                    , RequestAppendCells
                         { sheetId = Constants.subSheetId BacklogSentences
                         , rows =
                             deselectedPendingSentences
                                 |> List.map
                                     (\( _, { word, sentence, tags } ) ->
-                                        [ StringValue word
-                                        , StringValue sentence
+                                        [ RequestString word
+                                        , RequestString sentence
                                         , Sheets.tagsExtendedValue tags
                                         , Sheets.iso8601ExtendedValue time
                                         ]
@@ -290,7 +290,7 @@ confirmBatchRequest config =
                                 |> Sheets.sheetRequestRows
                         , fields = "userEnteredValue"
                         }
-                    , DeleteRange
+                    , RequestDeleteRange
                         { range =
                             { sheetId = Constants.subSheetId PendingSentences
                             , startRowIndex = Just 1
@@ -298,7 +298,7 @@ confirmBatchRequest config =
                             , startColumnIndex = Just 0
                             , endColumnIndex = Just 4
                             }
-                        , dimension = Rows
+                        , dimension = RequestRows
                         }
                     ]
             )

@@ -247,12 +247,12 @@ fillMigrationsRequest :
     -> Task.SheetsTask ()
 fillMigrationsRequest migrationId time =
     Sheets.batchUpdateRequest
-        [ AppendCells
+        [ RequestAppendCells
             { sheetId = Constants.subSheetId Migrations
             , rows =
                 Sheets.sheetRequestRow
-                    [ StringValue migrationId
-                    , StringValue <| Iso8601.fromTime time
+                    [ RequestString migrationId
+                    , RequestString <| Iso8601.fromTime time
                     ]
             , fields = "userEnteredValue"
             }

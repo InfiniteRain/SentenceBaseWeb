@@ -79,7 +79,7 @@ extract (ListConstructor { maybeConstructor }) =
 cellNumberValue : Sheets.ResponseCellData -> Maybe Float
 cellNumberValue { effectiveValue } =
     case effectiveValue of
-        Just (Number float) ->
+        Just (ResponseNumber float) ->
             Just float
 
         _ ->
@@ -89,7 +89,7 @@ cellNumberValue { effectiveValue } =
 cellStringValue : Sheets.ResponseCellData -> Maybe String
 cellStringValue { effectiveValue } =
     case effectiveValue of
-        Just (String string) ->
+        Just (ResponseString string) ->
             Just string
 
         _ ->
@@ -99,7 +99,7 @@ cellStringValue { effectiveValue } =
 cellBoolValue : Sheets.ResponseCellData -> Maybe Bool
 cellBoolValue { effectiveValue } =
     case effectiveValue of
-        Just (Bool bool) ->
+        Just (ResponseBool bool) ->
             Just bool
 
         _ ->
@@ -109,7 +109,7 @@ cellBoolValue { effectiveValue } =
 cellFormulaValue : Sheets.ResponseCellData -> Maybe String
 cellFormulaValue { effectiveValue } =
     case effectiveValue of
-        Just (Formula formula) ->
+        Just (ResponseFormula formula) ->
             Just formula
 
         _ ->

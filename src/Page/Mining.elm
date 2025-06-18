@@ -193,21 +193,21 @@ addPendingSentenceRequest { word, sentence, tags } =
         |> Task.andThen
             (\time ->
                 Sheets.batchUpdateAndGetGridDataRequest
-                    [ AppendCells
+                    [ RequestAppendCells
                         { sheetId = Constants.subSheetId PendingSentences
                         , rows =
                             Sheets.sheetRequestRow
-                                [ StringValue word
-                                , StringValue sentence
+                                [ RequestString word
+                                , RequestString sentence
                                 , Sheets.tagsExtendedValue tags
                                 , Sheets.iso8601ExtendedValue time
                                 ]
                         , fields = "userEnteredValue"
                         }
-                    , UpdateCells
+                    , RequestUpdateCells
                         { rows =
                             Sheets.sheetRequestRow
-                                [ FormulaValue
+                                [ RequestFormula
                                     ("=QUERY("
                                         ++ Constants.subSheetName MinedWords
                                         ++ "!"
@@ -249,13 +249,13 @@ addPendingSentenceRequest { word, sentence, tags } =
                     -- potential race condition can happen here if the same user
                     -- tries to mine a word on two devices at the same time
                     Sheets.batchUpdateRequest
-                        [ UpdateCells
+                        [ RequestUpdateCells
                             { rows =
                                 Sheets.sheetRequestRows <|
                                     List.map
                                         (\mined_word ->
-                                            [ StringValue mined_word.word
-                                            , StringValue <|
+                                            [ RequestString mined_word.word
+                                            , RequestString <|
                                                 Iso8601.fromTime
                                                     mined_word.mined_at
                                             ]

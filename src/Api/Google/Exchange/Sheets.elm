@@ -44,21 +44,21 @@ responsePropertiesDecoder =
 
 
 type ResponseCellExtendedData
-    = Number Float
-    | String String
-    | Bool Bool
-    | Formula String
-    | Error String
+    = ResponseNumber Float
+    | ResponseString String
+    | ResponseBool Bool
+    | ResponseFormula String
+    | ResponseError String
 
 
 responseCellExtendedDataDecoder : Decoder ResponseCellExtendedData
 responseCellExtendedDataDecoder =
     Decode.oneOf
-        [ Decode.map Number <| Decode.field "numberValue" Decode.float
-        , Decode.map String <| Decode.field "stringValue" Decode.string
-        , Decode.map Bool <| Decode.field "boolValue" Decode.bool
-        , Decode.map Formula <| Decode.field "stringValue" Decode.string
-        , Decode.map Error <|
+        [ Decode.map ResponseNumber <| Decode.field "numberValue" Decode.float
+        , Decode.map ResponseString <| Decode.field "stringValue" Decode.string
+        , Decode.map ResponseBool <| Decode.field "boolValue" Decode.bool
+        , Decode.map ResponseFormula <| Decode.field "stringValue" Decode.string
+        , Decode.map ResponseError <|
             Decode.field "errorValue" <|
                 Decode.field "message" Decode.string
         ]
@@ -283,26 +283,26 @@ requestGetByDataFilterEncoder sheetGetByDataFilterRequest =
 
 
 type RequestExtendedValue
-    = NumberValue Float
-    | StringValue String
-    | BoolValue Bool
-    | FormulaValue String
+    = RequestNumber Float
+    | RequestString String
+    | RequestBool Bool
+    | RequestFormula String
 
 
 requestExtendedValueEncoder : RequestExtendedValue -> Encode.Value
 requestExtendedValueEncoder value =
     Encode.object
         [ case value of
-            NumberValue float ->
+            RequestNumber float ->
                 ( "numberValue", Encode.float float )
 
-            StringValue string ->
+            RequestString string ->
                 ( "stringValue", Encode.string string )
 
-            BoolValue bool ->
+            RequestBool bool ->
                 ( "boolValue", Encode.bool bool )
 
-            FormulaValue formulaString ->
+            RequestFormula formulaString ->
                 ( "formulaValue", Encode.string formulaString )
         ]
 
@@ -332,21 +332,21 @@ requestRowDataEncoder { values } =
 
 
 type RequestDimension
-    = Unspecified
-    | Rows
-    | Columns
+    = RequestUnspecified
+    | RequestRows
+    | RequestColumns
 
 
 requestDimensionEncoder : RequestDimension -> Encode.Value
 requestDimensionEncoder dimension =
     case dimension of
-        Unspecified ->
+        RequestUnspecified ->
             Encode.string "DIMENSION_UNSPECIFIED"
 
-        Rows ->
+        RequestRows ->
             Encode.string "ROWS"
 
-        Columns ->
+        RequestColumns ->
             Encode.string "COLUMNS"
 
 
@@ -380,33 +380,33 @@ requestDimensionPropertiesEncoder { pixelSize } =
 
 
 type RequestBatchUpdateKind
-    = AddSheet
+    = RequestAddSheet
         { properties : RequestProperties
         }
-    | SetDataValidation
+    | RequestSetDataValidation
         { range : RequestGridRange
         , rule : RequestDataValidationRule
         }
-    | UpdateCells
+    | RequestUpdateCells
         { rows : List RequestRowData
         , fields : String
         , range : RequestGridRange
         }
-    | AppendCells
+    | RequestAppendCells
         { sheetId : Int
         , rows : List RequestRowData
         , fields : String
         }
-    | UpdateDimensionProperties
+    | RequestUpdateDimensionProperties
         { properties : RequestDimensionProperties
         , fields : String
         , range : RequestDimensionRange
         }
-    | DeleteRange
+    | RequestDeleteRange
         { range : RequestGridRange
         , dimension : RequestDimension
         }
-    | UpdateSheetProperties
+    | RequestUpdateSheetProperties
         { properties : RequestProperties
         , fields : String
         }
@@ -416,7 +416,7 @@ requestBatchUpdateKindEncoder : RequestBatchUpdateKind -> Encode.Value
 requestBatchUpdateKindEncoder kind =
     Encode.object <|
         case kind of
-            AddSheet { properties } ->
+            RequestAddSheet { properties } ->
                 [ ( "addSheet"
                   , Encode.object
                         [ ( "properties"
@@ -426,7 +426,7 @@ requestBatchUpdateKindEncoder kind =
                   )
                 ]
 
-            SetDataValidation { range, rule } ->
+            RequestSetDataValidation { range, rule } ->
                 [ ( "setDataValidation"
                   , Encode.object
                         [ ( "range", requestGridRangeEncoder range )
@@ -435,7 +435,7 @@ requestBatchUpdateKindEncoder kind =
                   )
                 ]
 
-            UpdateCells { rows, fields, range } ->
+            RequestUpdateCells { rows, fields, range } ->
                 [ ( "updateCells"
                   , Encode.object
                         [ ( "rows"
@@ -447,7 +447,7 @@ requestBatchUpdateKindEncoder kind =
                   )
                 ]
 
-            AppendCells { sheetId, rows, fields } ->
+            RequestAppendCells { sheetId, rows, fields } ->
                 [ ( "appendCells"
                   , Encode.object
                         [ ( "sheetId", Encode.int sheetId )
@@ -459,7 +459,7 @@ requestBatchUpdateKindEncoder kind =
                   )
                 ]
 
-            UpdateDimensionProperties { properties, fields, range } ->
+            RequestUpdateDimensionProperties { properties, fields, range } ->
                 [ ( "updateDimensionProperties"
                   , Encode.object
                         [ ( "properties"
@@ -472,7 +472,7 @@ requestBatchUpdateKindEncoder kind =
                   )
                 ]
 
-            DeleteRange { range, dimension } ->
+            RequestDeleteRange { range, dimension } ->
                 [ ( "deleteRange"
                   , Encode.object
                         [ ( "range", requestGridRangeEncoder range )
@@ -484,7 +484,7 @@ requestBatchUpdateKindEncoder kind =
                   )
                 ]
 
-            UpdateSheetProperties { properties, fields } ->
+            RequestUpdateSheetProperties { properties, fields } ->
                 [ ( "updateSheetProperties"
                   , Encode.object
                         [ ( "properties"
@@ -653,7 +653,7 @@ addSubSheetRequests columnSize subSheets =
     List.concat
         [ List.concatMap
             (\subSheet ->
-                [ AddSheet
+                [ RequestAddSheet
                     { properties =
                         { sheetId = Just subSheet.id
                         , title = Just subSheet.name
@@ -664,12 +664,14 @@ addSubSheetRequests columnSize subSheets =
                                 }
                         }
                     }
-                , UpdateCells
+                , RequestUpdateCells
                     { rows =
                         [ { values =
                                 List.map
                                     (\( name, _ ) ->
-                                        { userEnteredValue = StringValue name }
+                                        { userEnteredValue =
+                                            RequestString name
+                                        }
                                     )
                                     subSheet.columns
                           }
@@ -683,7 +685,7 @@ addSubSheetRequests columnSize subSheets =
                         , endColumnIndex = Just <| List.length subSheet.columns
                         }
                     }
-                , SetDataValidation
+                , RequestSetDataValidation
                     { range =
                         { sheetId = subSheet.id
                         , startRowIndex = Just 1
@@ -710,14 +712,14 @@ addSubSheetRequests columnSize subSheets =
             (\subSheet ->
                 List.indexedMap
                     (\index ( _, column ) ->
-                        UpdateDimensionProperties
+                        RequestUpdateDimensionProperties
                             { properties =
                                 { pixelSize = columnSize column
                                 }
                             , fields = "pixelSize"
                             , range =
                                 { sheetId = subSheet.id
-                                , dimension = Columns
+                                , dimension = RequestColumns
                                 , startIndex = index
                                 , endIndex = index + 1
                                 }
@@ -776,12 +778,12 @@ sheetRequestRows rows =
 
 tagsExtendedValue : List String -> RequestExtendedValue
 tagsExtendedValue tags =
-    StringValue <| encodeTags tags
+    RequestString <| encodeTags tags
 
 
 iso8601ExtendedValue : Time.Posix -> RequestExtendedValue
 iso8601ExtendedValue time =
-    StringValue <| Iso8601.fromTime time
+    RequestString <| Iso8601.fromTime time
 
 
 encodeTags : List String -> String

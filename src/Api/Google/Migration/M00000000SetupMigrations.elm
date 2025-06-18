@@ -9,6 +9,7 @@ import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Exchange.Sheets as Sheets
     exposing
         ( RequestBatchUpdateKind(..)
+        , ResponseCellExtendedData(..)
         )
 import Api.Google.Exchange.Task as Task
 import Api.Google.Migration.Config as Config_
@@ -119,7 +120,7 @@ update msg model =
             else
                 ( model
                 , Sheets.batchUpdateRequest
-                    [ UpdateSheetProperties
+                    [ RequestUpdateSheetProperties
                         { properties =
                             { sheetId = Just querySheetId
                             , title = Just querySheetName
@@ -186,7 +187,7 @@ extractAppliedMigrations sheetData =
                 >> Maybe.andThen
                     (\value ->
                         case value of
-                            Sheets.String string ->
+                            ResponseString string ->
                                 Just string
 
                             _ ->
