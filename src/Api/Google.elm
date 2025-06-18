@@ -211,10 +211,10 @@ update msg model =
                 Migration.Done ->
                     transitionToReady model
 
-        ( Ready, SentAction (SendRequest paramCmd) ) ->
-            ( { model | requestQueue = model.requestQueue ++ [ paramCmd ] }
+        ( Ready, SentAction (SendRequest sheetsCmd) ) ->
+            ( { model | requestQueue = model.requestQueue ++ [ sheetsCmd ] }
             , if List.isEmpty model.requestQueue then
-                DriveCmd.unwrap model.mainSheetId paramCmd
+                DriveCmd.unwrap model.mainSheetId sheetsCmd
                     |> Cmd.map GotActionResponse
 
               else
@@ -240,8 +240,8 @@ update msg model =
                 [] ->
                     ( model, Cmd.none, OutMsg.none )
 
-        ( _, SentAction (SendRequest paramCmd) ) ->
-            ( { model | requestQueue = model.requestQueue ++ [ paramCmd ] }
+        ( _, SentAction (SendRequest sheetsCmd) ) ->
+            ( { model | requestQueue = model.requestQueue ++ [ sheetsCmd ] }
             , Cmd.none
             , OutMsg.none
             )

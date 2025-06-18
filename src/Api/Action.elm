@@ -36,8 +36,8 @@ none =
 
 
 google : SheetsCmd msg -> Action msg
-google paramCmd =
-    Google <| SendRequest paramCmd
+google sheetsCmd =
+    Google <| SendRequest sheetsCmd
 
 
 googleInitialize : (Google.InitializeUpdate -> msg) -> Action msg
