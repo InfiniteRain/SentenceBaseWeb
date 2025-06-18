@@ -230,15 +230,15 @@ update msg model =
                     , OutMsg.some response
                     )
 
-                paramCmd :: rest ->
-                    ( { model | requestQueue = rest }
-                    , DriveCmd.unwrap model.mainSheetId paramCmd
+                _ :: nextCmd :: rest ->
+                    ( { model | requestQueue = nextCmd :: rest }
+                    , DriveCmd.unwrap model.mainSheetId nextCmd
                         |> Cmd.map GotActionResponse
                     , OutMsg.some response
                     )
 
                 [] ->
-                    ( { model | state = Ready }, Cmd.none, OutMsg.none )
+                    ( model, Cmd.none, OutMsg.none )
 
         ( _, SentAction (SendRequest paramCmd) ) ->
             ( { model | requestQueue = model.requestQueue ++ [ paramCmd ] }

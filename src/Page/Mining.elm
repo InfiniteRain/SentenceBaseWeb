@@ -173,11 +173,7 @@ update msg model =
                 |> Action.google
             )
 
-        GotAddPendingSentenceResponse resp ->
-            let
-                _ =
-                    Debug.log "words: " resp
-            in
+        GotAddPendingSentenceResponse _ ->
             ( model, Cmd.none, Action.none )
 
         OnTagsInputChanged text ->
@@ -278,7 +274,7 @@ addPendingSentenceRequest { word, sentence, tags } =
                                                     mined_word.mined_at
                                             ]
                                         )
-                                        (Debug.log "mined_words" mined_words)
+                                        mined_words
                             , fields = "userEnteredValue"
                             , range =
                                 { sheetId = Constants.subSheetId MinedWords
