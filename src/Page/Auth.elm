@@ -1,7 +1,11 @@
 module Page.Auth exposing (Model, Msg(..), init, subscriptions, update, view)
 
 import Api.Action as Action exposing (Action)
-import Api.Google as Google exposing (InitializeFailure(..), InitializeUpdate(..))
+import Api.Google as Google
+    exposing
+        ( InitializeFailure(..)
+        , InitializeUpdate(..)
+        )
 import Html exposing (Html, br, button, div, text)
 import Html.Events exposing (onClick)
 import Route

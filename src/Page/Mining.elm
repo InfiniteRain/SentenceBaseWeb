@@ -9,9 +9,27 @@ import Api.Google.Exchange.Sheets as Sheets
         , RequestExtendedValue(..)
         )
 import Api.Google.Exchange.Task as Task
-import Api.Google.ListConstructor exposing (cellStringValue, constructFromList, extract, field)
+import Api.Google.ListConstructor
+    exposing
+        ( cellStringValue
+        , constructFromList
+        , extract
+        , field
+        )
 import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
-import Html exposing (Attribute, Html, br, button, div, input, li, span, text, ul)
+import Html
+    exposing
+        ( Attribute
+        , Html
+        , br
+        , button
+        , div
+        , input
+        , li
+        , span
+        , text
+        , ul
+        )
 import Html.Attributes exposing (class, disabled, style, type_, value)
 import Html.Events exposing (onClick, onInput, stopPropagationOn)
 import Http
