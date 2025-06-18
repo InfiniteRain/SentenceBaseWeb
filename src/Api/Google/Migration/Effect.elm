@@ -5,12 +5,11 @@ module Api.Google.Migration.Effect exposing
     , done
     , doneWithPayload
     , fail
-    , task
+    , sheetsTask
     )
 
-import Api.Google.Requests as Requests
-import Api.Google.TaskCmd as TaskCmd exposing (TaskCmd)
-import Platform exposing (Task)
+import Api.Google.Exchange.SheetsCmd exposing (SheetsCmd)
+import Api.Google.Exchange.Task as Task exposing (Error)
 
 
 
@@ -18,8 +17,8 @@ import Platform exposing (Task)
 
 
 type EffectInner msg payload
-    = Task (TaskCmd msg)
-    | Fail Requests.Error
+    = SheetsTask (SheetsCmd msg)
+    | Fail Task.Error
     | Done payload
 
 
@@ -35,15 +34,15 @@ type alias EffectWithPayload msg payload =
 -- CONSTRUCTORS
 
 
-task :
-    (Result error response -> rootMsg)
-    -> Task error response
+sheetsTask :
+    (Result Error a -> rootMsg)
+    -> Task.SheetsTask a
     -> EffectInner rootMsg payload
-task toMsg subTask =
-    Task <| TaskCmd.attempt toMsg subTask
+sheetsTask toMsg task =
+    SheetsTask <| Task.sheetsAttempt toMsg task
 
 
-fail : Requests.Error -> EffectInner rootMsg payload
+fail : Task.Error -> EffectInner rootMsg payload
 fail err =
     Fail err
 

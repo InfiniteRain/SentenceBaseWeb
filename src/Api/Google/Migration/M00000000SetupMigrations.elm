@@ -6,10 +6,13 @@ module Api.Google.Migration.M00000000SetupMigrations exposing
     )
 
 import Api.Google.Constants as Constants exposing (SubSheet(..))
+import Api.Google.Exchange.Sheets as Sheets
+    exposing
+        ( RequestBatchUpdateKind(..)
+        )
+import Api.Google.Exchange.Task as Task
 import Api.Google.Migration.Config as Config_
-import Api.Google.Migration.Effect as Effect exposing (Effect, EffectWithPayload)
-import Api.Google.Requests as Requests exposing (SheetRequestBatchUpdateKind(..))
-import Api.Google.TaskCmd as TaskCmd
+import Api.Google.Migration.Effect as Effect exposing (EffectWithPayload)
 import Http
 import Set exposing (Set)
 
@@ -19,8 +22,7 @@ import Set exposing (Set)
 
 
 type alias Model =
-    { sheetId : String
-    , appliedMigrations : Set String
+    { appliedMigrations : Set String
     }
 
 
@@ -28,15 +30,14 @@ type alias Config =
     Config_.Config Model Msg
 
 
-init : String -> Config
-init sheetId =
+init : Config
+init =
     { id = "SetupMigrations"
     , model =
-        { sheetId = sheetId
-        , appliedMigrations = Set.empty
+        { appliedMigrations = Set.empty
         }
-    , initialTask =
-        Requests.getSubSheetDataRequest
+    , initialSheetsCmd =
+        Sheets.getSubSheetDataRequest
             [ { sheetId = Constants.subSheetId Migrations
               , startRowIndex = Just 1
               , endRowIndex = Nothing
@@ -44,9 +45,7 @@ init sheetId =
               , endColumnIndex = Just 1
               }
             ]
-            sheetId
-            |> Requests.buildTask
-            |> TaskCmd.attempt GotMigrationsSubSheetDataResponse
+            |> Task.sheetsAttempt GotMigrationsSubSheetDataResponse
     }
 
 
@@ -56,25 +55,24 @@ init sheetId =
 
 type alias SubSheetDataResult =
     Result
-        Requests.Error
-        Requests.SheetResponseGetSubSheetData
+        Task.Error
+        Sheets.ResponseGetSubSheetData
 
 
 type Msg
     = GotMigrationsSubSheetDataResponse SubSheetDataResult
-    | GotCreateMigrationsSubSheetResponse (Result Requests.Error ())
+    | GotCreateMigrationsSubSheetResponse (Result Task.Error ())
     | GotQuerySubSheetDataResponse SubSheetDataResult
-    | GotCreateQuerySubSheetResponse (Result Requests.Error ())
-    | GotRenameQuerySubSheetEffect (Result Requests.Error ())
+    | GotCreateQuerySubSheetResponse (Result Task.Error ())
+    | GotRenameQuerySubSheetEffect (Result Task.Error ())
 
 
 update : Msg -> Model -> ( Model, EffectWithPayload Msg (Set String) )
-update msg ({ sheetId } as model) =
+update msg model =
     case msg of
-        GotMigrationsSubSheetDataResponse (Err (Requests.Http (Http.BadStatus 400))) ->
+        GotMigrationsSubSheetDataResponse (Err (Task.HttpError (Http.BadStatus 400))) ->
             ( model
-            , createSubSheetEffect sheetId
-                GotCreateMigrationsSubSheetResponse
+            , createSubSheetEffect GotCreateMigrationsSubSheetResponse
                 { id = 100
                 , name = "migrations"
                 , columns =
@@ -91,19 +89,18 @@ update msg ({ sheetId } as model) =
             ( { model
                 | appliedMigrations = extractAppliedMigrations response
               }
-            , getQueryCellEffect sheetId
+            , getQueryCellEffect
             )
 
         GotCreateMigrationsSubSheetResponse (Err err) ->
             ( model, Effect.fail err )
 
         GotCreateMigrationsSubSheetResponse (Ok _) ->
-            ( model, getQueryCellEffect sheetId )
+            ( model, getQueryCellEffect )
 
-        GotQuerySubSheetDataResponse (Err (Requests.Http (Http.BadStatus 400))) ->
+        GotQuerySubSheetDataResponse (Err (Task.HttpError (Http.BadStatus 400))) ->
             ( model
-            , createSubSheetEffect sheetId
-                GotCreateQuerySubSheetResponse
+            , createSubSheetEffect GotCreateQuerySubSheetResponse
                 { id = 0
                 , name = "query"
                 , columns = []
@@ -121,7 +118,7 @@ update msg ({ sheetId } as model) =
 
             else
                 ( model
-                , Requests.sheetBatchUpdateRequest
+                , Sheets.batchUpdateRequest
                     [ UpdateSheetProperties
                         { properties =
                             { sheetId = Just querySheetId
@@ -131,9 +128,7 @@ update msg ({ sheetId } as model) =
                         , fields = "title"
                         }
                     ]
-                    sheetId
-                    |> Requests.buildTask
-                    |> Effect.task GotRenameQuerySubSheetEffect
+                    |> Effect.sheetsTask GotRenameQuerySubSheetEffect
                 )
 
         GotRenameQuerySubSheetEffect (Err err) ->
@@ -154,21 +149,18 @@ update msg ({ sheetId } as model) =
 
 
 createSubSheetEffect :
-    String
-    -> (Result Requests.Error () -> Msg)
-    -> Requests.SubSheet Column
+    (Result Task.Error () -> Msg)
+    -> Sheets.SubSheet Column
     -> EffectWithPayload Msg (Set String)
-createSubSheetEffect sheetId toMsg subSheetConfig =
-    Requests.sheetBatchUpdateRequest
-        (Requests.addSubSheetRequests columnSize [ subSheetConfig ])
-        sheetId
-        |> Requests.buildTask
-        |> Effect.task toMsg
+createSubSheetEffect toMsg subSheetConfig =
+    Sheets.batchUpdateRequest
+        (Sheets.addSubSheetRequests columnSize [ subSheetConfig ])
+        |> Effect.sheetsTask toMsg
 
 
-getQueryCellEffect : String -> EffectWithPayload Msg (Set String)
-getQueryCellEffect sheetId =
-    Requests.getSubSheetDataRequest
+getQueryCellEffect : EffectWithPayload Msg (Set String)
+getQueryCellEffect =
+    Sheets.getSubSheetDataRequest
         [ { sheetId = Constants.subSheetId Query
           , startRowIndex = Just 0
           , endRowIndex = Just 1
@@ -176,12 +168,10 @@ getQueryCellEffect sheetId =
           , endColumnIndex = Just 1
           }
         ]
-        sheetId
-        |> Requests.buildTask
-        |> Effect.task GotQuerySubSheetDataResponse
+        |> Effect.sheetsTask GotQuerySubSheetDataResponse
 
 
-extractAppliedMigrations : Requests.SheetResponseGetSubSheetData -> Set String
+extractAppliedMigrations : Sheets.ResponseGetSubSheetData -> Set String
 extractAppliedMigrations sheetData =
     sheetData.sheets
         |> List.head
@@ -196,7 +186,7 @@ extractAppliedMigrations sheetData =
                 >> Maybe.andThen
                     (\value ->
                         case value of
-                            Requests.String string ->
+                            Sheets.String string ->
                                 Just string
 
                             _ ->
@@ -207,7 +197,7 @@ extractAppliedMigrations sheetData =
         |> Set.fromList
 
 
-extractTitle : Requests.SheetResponseGetSubSheetData -> Maybe String
+extractTitle : Sheets.ResponseGetSubSheetData -> Maybe String
 extractTitle sheetData =
     sheetData.sheets
         |> List.head

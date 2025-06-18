@@ -9,13 +9,19 @@ module Page.PendingSentences exposing
 
 import Api.Action as Action exposing (Action)
 import Api.Google.Constants as Constants exposing (SubSheet(..))
-import Api.Google.ListConstructor as ListConstructor exposing (ListConstructor, cellStringValue, constructFromList, extract, field)
-import Api.Google.ParamTask as ParamTask exposing (ParamTask)
-import Api.Google.Requests as Requests
+import Api.Google.Exchange.Sheets as Sheets
     exposing
-        ( SheetRequestBatchUpdateKind(..)
-        , SheetRequestDimension(..)
-        , SheetRequestExtendedValue(..)
+        ( RequestBatchUpdateKind(..)
+        , RequestDimension(..)
+        , RequestExtendedValue(..)
+        )
+import Api.Google.Exchange.Task as Task
+import Api.Google.ListConstructor
+    exposing
+        ( cellStringValue
+        , constructFromList
+        , extract
+        , field
         )
 import Array exposing (Array)
 import Html exposing (Html, button, div, hr, li, span, text, ul)
@@ -24,7 +30,6 @@ import Html.Events exposing (onClick)
 import Iso8601
 import Json.Decode as Decode
 import Session exposing (Session)
-import Task
 import Time
 
 
@@ -63,7 +68,7 @@ init session =
       , confirmBatchRequesState = Idle
       }
     , Cmd.none
-    , ParamTask.attempt ReceivedPendingSentencesList getPendingSentencesRequest
+    , Task.sheetsAttempt ReceivedPendingSentencesList getPendingSentencesRequest
         |> Action.google
     )
 
@@ -75,14 +80,14 @@ init session =
 type Msg
     = ReceivedPendingSentencesList
         (Result
-            Requests.Error
+            Task.Error
             (Array PendingSentence)
         )
     | Selected Int
     | Deselected Int
     | ConfirmBatchClicked
     | UuidReceived String
-    | BatchConfirmed (Result Requests.Error ())
+    | BatchConfirmed (Result Task.Error ())
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
@@ -144,7 +149,7 @@ update msg model =
                 , deselectedSentences = model.deselectedSentences
                 , batchId = uuid
                 }
-                |> ParamTask.attempt BatchConfirmed
+                |> Task.sheetsAttempt BatchConfirmed
                 |> Action.google
             )
 
@@ -168,9 +173,9 @@ update msg model =
             )
 
 
-getPendingSentencesRequest : ParamTask Requests.Error (Array PendingSentence)
+getPendingSentencesRequest : Task.SheetsTask (Array PendingSentence)
 getPendingSentencesRequest =
-    Requests.getSubSheetDataRequest
+    Sheets.getSubSheetDataRequest
         [ { sheetId = Constants.subSheetId PendingSentences
           , startRowIndex = Just 1
           , endRowIndex = Nothing
@@ -178,8 +183,7 @@ getPendingSentencesRequest =
           , endColumnIndex = Just 4
           }
         ]
-        >> Requests.buildTask
-        >> Task.map
+        |> Task.map
             (.sheets
                 >> List.head
                 >> Maybe.map .data
@@ -197,7 +201,7 @@ getPendingSentencesRequest =
 
 
 maybeConstructPendingSentence :
-    List Requests.SheetResponseCellData
+    List Sheets.ResponseCellData
     -> Maybe PendingSentence
 maybeConstructPendingSentence row =
     constructFromList PendingSentence row
@@ -222,8 +226,8 @@ confirmBatchRequest :
     , deselectedSentences : Array Int
     , batchId : String
     }
-    -> ParamTask Requests.Error ()
-confirmBatchRequest config sheetId =
+    -> Task.SheetsTask ()
+confirmBatchRequest config =
     let
         { pendingSentences, selectedSentences, deselectedSentences, batchId } =
             config
@@ -238,10 +242,10 @@ confirmBatchRequest config sheetId =
                 deselectedSentences
                 pendingSentences
     in
-    Time.now
+    Task.platform Time.now
         |> Task.andThen
             (\time ->
-                Requests.sheetBatchUpdateRequest
+                Sheets.batchUpdateRequest
                     [ AppendCells
                         { sheetId = Constants.subSheetId MinedSentences
                         , rows =
@@ -250,12 +254,12 @@ confirmBatchRequest config sheetId =
                                     (\( _, { word, sentence, tags } ) ->
                                         [ StringValue word
                                         , StringValue sentence
-                                        , Requests.tagsExtendedValue tags
+                                        , Sheets.tagsExtendedValue tags
                                         , StringValue batchId
-                                        , Requests.iso8601ExtendedValue time
+                                        , Sheets.iso8601ExtendedValue time
                                         ]
                                     )
-                                |> Requests.sheetRequestRows
+                                |> Sheets.sheetRequestRows
                         , fields = "userEnteredValue"
                         }
                     , AppendCells
@@ -265,10 +269,10 @@ confirmBatchRequest config sheetId =
                                 |> List.map
                                     (\( _, { word } ) ->
                                         [ StringValue word
-                                        , Requests.iso8601ExtendedValue time
+                                        , Sheets.iso8601ExtendedValue time
                                         ]
                                     )
-                                |> Requests.sheetRequestRows
+                                |> Sheets.sheetRequestRows
                         , fields = "userEnteredValue"
                         }
                     , AppendCells
@@ -279,11 +283,11 @@ confirmBatchRequest config sheetId =
                                     (\( _, { word, sentence, tags } ) ->
                                         [ StringValue word
                                         , StringValue sentence
-                                        , Requests.tagsExtendedValue tags
-                                        , Requests.iso8601ExtendedValue time
+                                        , Sheets.tagsExtendedValue tags
+                                        , Sheets.iso8601ExtendedValue time
                                         ]
                                     )
-                                |> Requests.sheetRequestRows
+                                |> Sheets.sheetRequestRows
                         , fields = "userEnteredValue"
                         }
                     , DeleteRange
@@ -297,8 +301,6 @@ confirmBatchRequest config sheetId =
                         , dimension = Rows
                         }
                     ]
-                    sheetId
-                    |> Requests.buildTask
             )
 
 

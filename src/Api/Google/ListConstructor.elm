@@ -9,7 +9,10 @@ module Api.Google.ListConstructor exposing
     , field
     )
 
-import Api.Google.Requests as Requests exposing (SheetResponseCellExtendedData(..))
+import Api.Google.Exchange.Sheets as Sheets
+    exposing
+        ( ResponseCellExtendedData(..)
+        )
 
 
 
@@ -73,7 +76,7 @@ extract (ListConstructor { maybeConstructor }) =
 -- HELPERS
 
 
-cellNumberValue : Requests.SheetResponseCellData -> Maybe Float
+cellNumberValue : Sheets.ResponseCellData -> Maybe Float
 cellNumberValue { effectiveValue } =
     case effectiveValue of
         Just (Number float) ->
@@ -83,7 +86,7 @@ cellNumberValue { effectiveValue } =
             Nothing
 
 
-cellStringValue : Requests.SheetResponseCellData -> Maybe String
+cellStringValue : Sheets.ResponseCellData -> Maybe String
 cellStringValue { effectiveValue } =
     case effectiveValue of
         Just (String string) ->
@@ -93,7 +96,7 @@ cellStringValue { effectiveValue } =
             Nothing
 
 
-cellBoolValue : Requests.SheetResponseCellData -> Maybe Bool
+cellBoolValue : Sheets.ResponseCellData -> Maybe Bool
 cellBoolValue { effectiveValue } =
     case effectiveValue of
         Just (Bool bool) ->
@@ -103,7 +106,7 @@ cellBoolValue { effectiveValue } =
             Nothing
 
 
-cellFormulaValue : Requests.SheetResponseCellData -> Maybe String
+cellFormulaValue : Sheets.ResponseCellData -> Maybe String
 cellFormulaValue { effectiveValue } =
     case effectiveValue of
         Just (Formula formula) ->

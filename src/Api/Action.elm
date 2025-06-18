@@ -10,7 +10,7 @@ module Api.Action exposing
     )
 
 import Api.Google as Google exposing (Action(..))
-import Api.Google.ParamCmd as ParamCmd exposing (ParamCmd)
+import Api.Google.Exchange.SheetsCmd as SheetsCmd exposing (SheetsCmd)
 import Api.Wiktionary as Wiktionary
 import Http
 
@@ -35,7 +35,7 @@ none =
     None
 
 
-google : ParamCmd msg -> Action msg
+google : SheetsCmd msg -> Action msg
 google paramCmd =
     Google <| SendRequest paramCmd
 
@@ -99,8 +99,8 @@ map toMsg msg =
         Google (Initialize rootMsg) ->
             Google <| Initialize <| (toMsg << rootMsg)
 
-        Google (SendRequest paramCmd) ->
-            Google <| SendRequest <| ParamCmd.map toMsg paramCmd
+        Google (SendRequest cmd) ->
+            Google <| SendRequest <| SheetsCmd.map toMsg cmd
 
         Wiktionary request ->
             Wiktionary

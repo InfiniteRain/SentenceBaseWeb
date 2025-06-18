@@ -6,11 +6,10 @@ module Api.Google.Migration.M15052025SentencesAndWords exposing
     , update
     )
 
+import Api.Google.Exchange.Sheets as Sheets
+import Api.Google.Exchange.Task as Task
 import Api.Google.Migration.Config as Config_
 import Api.Google.Migration.Effect as Effect exposing (Effect)
-import Api.Google.Requests as Requests
-import Api.Google.TaskCmd as TaskCmd
-import Task exposing (Task)
 
 
 
@@ -18,29 +17,20 @@ import Task exposing (Task)
 
 
 type alias Model =
-    { sheetId : String
-    , state : State
-    }
-
-
-type State
-    = LookingForQuerySheet
+    ()
 
 
 type alias Config =
     Config_.Config Model Msg
 
 
-init : String -> Config
-init sheetId =
+init : Config
+init =
     { id = "SentencesAndWords"
-    , model =
-        { sheetId = sheetId
-        , state = LookingForQuerySheet
-        }
-    , initialTask =
-        createSubSheetsTask sheetId
-            |> TaskCmd.attempt GotCreateSubSheetResponse
+    , model = ()
+    , initialSheetsCmd =
+        createSubSheetsTask
+            |> Task.sheetsAttempt GotCreateSubSheetResponse
     }
 
 
@@ -49,7 +39,7 @@ init sheetId =
 
 
 type Msg
-    = GotCreateSubSheetResponse (Result Requests.Error ())
+    = GotCreateSubSheetResponse (Result Task.Error ())
 
 
 update : Msg -> Model -> ( Model, Effect Msg )
@@ -62,10 +52,10 @@ update msg model =
             ( model, Effect.done )
 
 
-createSubSheetsTask : String -> Task Requests.Error ()
-createSubSheetsTask sheetId =
-    Requests.sheetBatchUpdateRequest
-        (Requests.addSubSheetRequests columnSize
+createSubSheetsTask : Task.SheetsTask ()
+createSubSheetsTask =
+    Sheets.batchUpdateRequest
+        (Sheets.addSubSheetRequests columnSize
             [ { id = 200
               , name = "pending_sentences"
               , columns =
@@ -103,8 +93,6 @@ createSubSheetsTask sheetId =
               }
             ]
         )
-        sheetId
-        |> Requests.buildTask
 
 
 

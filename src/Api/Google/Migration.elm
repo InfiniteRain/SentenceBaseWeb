@@ -7,15 +7,19 @@ module Api.Google.Migration exposing
     )
 
 import Api.Google.Constants as Constants exposing (SubSheet(..))
+import Api.Google.Exchange.Sheets as Sheets
+    exposing
+        ( RequestBatchUpdateKind(..)
+        , RequestExtendedValue(..)
+        )
+import Api.Google.Exchange.SheetsCmd as SheetsCmd
+import Api.Google.Exchange.Task as Task
 import Api.Google.Migration.Config exposing (Config)
 import Api.Google.Migration.Effect as Effect exposing (Effect, EffectInner(..))
 import Api.Google.Migration.M00000000SetupMigrations as SetupMigrations
 import Api.Google.Migration.M15052025SentencesAndWords as SentencesAndWords
-import Api.Google.Requests as Requests exposing (SheetRequestBatchUpdateKind(..), SheetRequestExtendedValue(..))
-import Api.Google.TaskCmd as TaskCmd
 import Iso8601
 import Set
-import Task exposing (Task)
 import Time
 
 
@@ -73,12 +77,15 @@ type Kind
 parseConfig :
     (model -> Kind)
     -> (msg -> Msg)
+    -> String
     -> Config model msg
     -> Migration
-parseConfig toKind toMsg config =
+parseConfig toKind toMsg sheetId config =
     { id = config.id
     , kind = toKind config.model
-    , initialCmd = Cmd.map toMsg <| TaskCmd.cmd config.initialTask
+    , initialCmd =
+        SheetsCmd.unwrap sheetId config.initialSheetsCmd
+            |> Cmd.map toMsg
     }
 
 
@@ -86,8 +93,8 @@ init : String -> ( Model, Cmd Msg )
 init sheetId =
     let
         setupMigrations =
-            SetupMigrations.init sheetId
-                |> parseConfig Setup GotSetupMigrationsMsg
+            SetupMigrations.init
+                |> parseConfig Setup GotSetupMigrationsMsg sheetId
     in
     ( { sheetId = sheetId
       , migrationQueue =
@@ -104,13 +111,13 @@ init sheetId =
 type Msg
     = GotSetupMigrationsMsg SetupMigrations.Msg
     | GotMigrationMsg MigrationMsg
-    | MigrationAppended (Result Requests.Error ())
+    | MigrationAppended (Result Task.Error ())
 
 
 type OutMsg
     = None
     | Update String
-    | Fail Requests.Error
+    | Fail Task.Error
     | Done
 
 
@@ -132,14 +139,14 @@ update msg model =
                     SetupMigrations.update subMsg subModel
             in
             case effect of
-                Effect.Task cmd ->
+                Effect.SheetsTask cmd ->
                     handleRequestBranch
                         Setup
                         GotSetupMigrationsMsg
                         model
                         migration
                         rest
-                        ( newSubModel, TaskCmd.cmd cmd )
+                        ( newSubModel, SheetsCmd.unwrap model.sheetId cmd )
 
                 Effect.Fail err ->
                     handleFailBranch err model
@@ -211,50 +218,45 @@ updateWith subMsg subModel updateFn toMsg toModel =
     in
     \model migration restMigrations ->
         case effect of
-            Effect.Task task ->
+            Effect.SheetsTask cmd ->
                 handleRequestBranch
                     (toModel >> Normal)
                     (toMsg >> GotMigrationMsg)
                     model
                     migration
                     restMigrations
-                    ( newSubModel, TaskCmd.cmd task )
+                    ( newSubModel, SheetsCmd.unwrap model.sheetId cmd )
 
             Effect.Fail err ->
                 handleFailBranch err model
 
             Effect.Done _ ->
                 ( { model | migrationQueue = restMigrations }
-                , Time.now
+                , Task.platform Time.now
                     |> Task.andThen
-                        (fillMigrationsRequest
-                            model.sheetId
-                            migration.id
-                        )
-                    |> Task.attempt MigrationAppended
+                        (fillMigrationsRequest migration.id)
+                    |> Task.sheetsAttempt MigrationAppended
+                    |> SheetsCmd.unwrap model.sheetId
                 , None
                 )
 
 
 fillMigrationsRequest :
     String
-    -> String
     -> Time.Posix
-    -> Task Requests.Error ()
-fillMigrationsRequest sheetId migrationId time =
-    Requests.sheetBatchUpdateRequest
+    -> Task.SheetsTask ()
+fillMigrationsRequest migrationId time =
+    Sheets.batchUpdateRequest
         [ AppendCells
             { sheetId = Constants.subSheetId Migrations
             , rows =
-                Requests.sheetRequestRow
+                Sheets.sheetRequestRow
                     [ StringValue migrationId
                     , StringValue <| Iso8601.fromTime time
                     ]
             , fields = "userEnteredValue"
             }
         ]
-        sheetId
-        |> Requests.buildTask
 
 
 handleRequestBranch :
@@ -276,17 +278,20 @@ handleRequestBranch toKind toMsg model migration restMigrations ( newSubModel, c
     )
 
 
-handleFailBranch : Requests.Error -> Model -> ( Model, Cmd Msg, OutMsg )
+handleFailBranch : Task.Error -> Model -> ( Model, Cmd Msg, OutMsg )
 handleFailBranch err model =
     ( { model | migrationQueue = [] }, Cmd.none, Fail err )
 
 
 entry :
-    (String -> Config model msg)
+    Config model msg
     -> (msg -> MigrationMsg)
     -> (model -> MigrationModel)
     -> (String -> Migration)
-entry initFn toMsg toModel =
+entry config toMsg toModel =
     \sheetId ->
-        initFn sheetId
-            |> parseConfig (toModel >> Normal) (toMsg >> GotMigrationMsg)
+        parseConfig
+            (toModel >> Normal)
+            (toMsg >> GotMigrationMsg)
+            sheetId
+            config

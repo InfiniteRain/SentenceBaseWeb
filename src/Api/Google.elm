@@ -9,12 +9,13 @@ module Api.Google exposing
     , update
     )
 
+import Api.Google.Exchange.Drive as Drive
+import Api.Google.Exchange.SheetsCmd as DriveCmd exposing (SheetsCmd)
+import Api.Google.Exchange.Task as Task
 import Api.Google.Migration as Migration
-import Api.Google.ParamCmd exposing (ParamCmd)
-import Api.Google.Requests as Requests
 import OutMsg exposing (OutMsg(..))
 import Port
-import Task
+import Task as PlatformTask
 import TaskPort
 
 
@@ -24,7 +25,7 @@ import TaskPort
 
 type alias Model rootMsg =
     { state : State
-    , requestQueue : List (ParamCmd rootMsg)
+    , requestQueue : List (SheetsCmd rootMsg)
     , initializeMsg : Maybe (InitializeUpdate -> rootMsg)
     , appFolderId : String
     , mainSheetId : String
@@ -61,26 +62,10 @@ type Msg rootMsg
     | GotAuthenticationResult (TaskPort.Result String)
     | SentAction (Action rootMsg)
     | GotActionResponse rootMsg
-    | GotFindAppFolderResponse
-        (Result
-            Requests.Error
-            Requests.DriveResponseFileList
-        )
-    | GotCreateAppFolderResponse
-        (Result
-            Requests.Error
-            Requests.DriveResponseFileCreate
-        )
-    | GotFindMainSheetResponse
-        (Result
-            Requests.Error
-            Requests.DriveResponseFileList
-        )
-    | GotCreateMainSheetResponse
-        (Result
-            Requests.Error
-            Requests.DriveResponseFileCreate
-        )
+    | GotFindAppFolderResponse (Result Task.Error Drive.ResponseFileList)
+    | GotCreateAppFolderResponse (Result Task.Error Drive.ResponseFileCreate)
+    | GotFindMainSheetResponse (Result Task.Error Drive.ResponseFileList)
+    | GotCreateMainSheetResponse (Result Task.Error Drive.ResponseFileCreate)
     | GotMigrationMsg Migration.Msg
 
 
@@ -92,13 +77,13 @@ update msg model =
     case ( model.state, msg ) of
         ( Uninitialized, SentAction (Initialize toMsg) ) ->
             ( { model | state = Initializing, initializeMsg = Just toMsg }
-            , Task.attempt GotInitializedResult Port.googleInitialize
+            , PlatformTask.attempt GotInitializedResult Port.googleInitialize
             , sendInitializationUpdate InitializingApi toMsg
             )
 
         ( Initializing, GotInitializedResult (Ok ()) ) ->
             ( { model | state = Authenticating }
-            , Task.attempt GotAuthenticationResult Port.googleGetToken
+            , PlatformTask.attempt GotAuthenticationResult Port.googleGetToken
             , maybeSendInitializationUpdate model AuthenticatingApi
             )
 
@@ -111,9 +96,8 @@ update msg model =
 
         ( Authenticating, GotAuthenticationResult (Ok _) ) ->
             ( { model | state = SettingUpAppFolder }
-            , Requests.findAppFoldersRequest
-                |> Requests.buildTask
-                |> Task.attempt GotFindAppFolderResponse
+            , Drive.findAppFoldersRequest
+                |> Task.driveAttempt GotFindAppFolderResponse
             , maybeSendInitializationUpdate model LocatingAppFolder
             )
 
@@ -128,17 +112,15 @@ update msg model =
             case response.files of
                 file :: _ ->
                     ( { model | appFolderId = file.id }
-                    , Requests.findMainSheetRequest file.id
-                        |> Requests.buildTask
-                        |> Task.attempt GotFindMainSheetResponse
+                    , Drive.findMainSheetRequest file.id
+                        |> Task.driveAttempt GotFindMainSheetResponse
                     , maybeSendInitializationUpdate model LocatingMainSheet
                     )
 
                 [] ->
                     ( model
-                    , Requests.createAppFolderRequest
-                        |> Requests.buildTask
-                        |> Task.attempt GotCreateAppFolderResponse
+                    , Drive.createAppFolderRequest
+                        |> Task.driveAttempt GotCreateAppFolderResponse
                     , maybeSendInitializationUpdate model CreatingMainSheet
                     )
 
@@ -151,9 +133,8 @@ update msg model =
 
         ( SettingUpAppFolder, GotCreateAppFolderResponse (Ok response) ) ->
             ( { model | appFolderId = response.id }
-            , Requests.createMainSheetRequest response.id
-                |> Requests.buildTask
-                |> Task.attempt GotCreateMainSheetResponse
+            , Drive.createMainSheetRequest response.id
+                |> Task.driveAttempt GotCreateMainSheetResponse
             , maybeSendInitializationUpdate model CreatingMainSheet
             )
 
@@ -171,10 +152,9 @@ update msg model =
 
                 [] ->
                     ( model
-                    , Requests.createMainSheetRequest
+                    , Drive.createMainSheetRequest
                         model.appFolderId
-                        |> Requests.buildTask
-                        |> Task.attempt GotCreateMainSheetResponse
+                        |> Task.driveAttempt GotCreateMainSheetResponse
                     , maybeSendInitializationUpdate model CreatingMainSheet
                     )
 
@@ -234,7 +214,7 @@ update msg model =
         ( Ready, SentAction (SendRequest paramCmd) ) ->
             ( { model | requestQueue = model.requestQueue ++ [ paramCmd ] }
             , if List.isEmpty model.requestQueue then
-                paramCmd model.mainSheetId
+                DriveCmd.unwrap model.mainSheetId paramCmd
                     |> Cmd.map GotActionResponse
 
               else
@@ -252,7 +232,7 @@ update msg model =
 
                 paramCmd :: rest ->
                     ( { model | requestQueue = rest }
-                    , paramCmd model.mainSheetId
+                    , DriveCmd.unwrap model.mainSheetId paramCmd
                         |> Cmd.map GotActionResponse
                     , OutMsg.some response
                     )
@@ -302,7 +282,7 @@ transitionToReady model =
     case model.requestQueue of
         request :: _ ->
             ( { model | state = Ready }
-            , request model.mainSheetId
+            , DriveCmd.unwrap model.mainSheetId request
                 |> Cmd.map GotActionResponse
             , maybeSendInitializationUpdate model Done
             )
@@ -347,7 +327,7 @@ subscriptions _ =
 
 type Action msg
     = Initialize (InitializeUpdate -> msg)
-    | SendRequest (ParamCmd msg)
+    | SendRequest (SheetsCmd msg)
 
 
 type InitializeUpdate
@@ -366,8 +346,8 @@ type InitializeUpdate
 type InitializeFailure
     = ApiInitialization TaskPort.Error
     | ApiAuthentication TaskPort.Error
-    | AppFolderLocation Requests.Error
-    | AppFolderCreation Requests.Error
-    | MainSheetLocation Requests.Error
-    | MainSheetCreation Requests.Error
-    | MainSheetMigration String Requests.Error
+    | AppFolderLocation Task.Error
+    | AppFolderCreation Task.Error
+    | MainSheetLocation Task.Error
+    | MainSheetCreation Task.Error
+    | MainSheetMigration String Task.Error

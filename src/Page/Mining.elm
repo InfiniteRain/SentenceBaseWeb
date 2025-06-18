@@ -2,14 +2,14 @@ module Page.Mining exposing (Model, Msg(..), init, subscriptions, update, view)
 
 import Api.Action as Action exposing (Action(..))
 import Api.Google.Constants as Constants exposing (SubSheet(..))
-import Api.Google.ListConstructor as ListConstructor exposing (cellStringValue, constructFromList, extract, field)
-import Api.Google.ParamTask as ParamTask exposing (ParamTask)
-import Api.Google.Requests as Requests
+import Api.Google.Exchange.Sheets as Sheets
     exposing
-        ( SheetRequestBatchUpdateKind(..)
-        , SheetRequestDimension(..)
-        , SheetRequestExtendedValue(..)
+        ( RequestBatchUpdateKind(..)
+        , RequestDimension(..)
+        , RequestExtendedValue(..)
         )
+import Api.Google.Exchange.Task as Task
+import Api.Google.ListConstructor exposing (cellStringValue, constructFromList, extract, field)
 import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
 import Html exposing (Attribute, Html, br, button, div, input, li, span, text, ul)
 import Html.Attributes exposing (class, disabled, style, type_, value)
@@ -21,7 +21,7 @@ import Port
 import Regex
 import RegexExtra
 import Session exposing (Session)
-import Task
+import Task as PlatformTask
 import TaskPort
 import Time
 
@@ -79,7 +79,7 @@ type Msg
     | WordSelected String
     | DefinitionFetched (Result Http.Error Wiktionary.Usages)
     | MineClicked
-    | GotAddPendingSentenceResponse (Result Requests.Error ())
+    | GotAddPendingSentenceResponse (Result Task.Error ())
     | OnTagsInputChanged String
     | Noop
 
@@ -130,7 +130,7 @@ update msg model =
 
         BodyClicked ->
             ( model
-            , Task.attempt ClipboardUpdated Port.readClipboard
+            , PlatformTask.attempt ClipboardUpdated Port.readClipboard
             , Action.none
             )
 
@@ -151,7 +151,7 @@ update msg model =
                         |> Regex.split RegexExtra.space
                         |> List.filter ((/=) "")
                 }
-                |> ParamTask.attempt GotAddPendingSentenceResponse
+                |> Task.sheetsAttempt GotAddPendingSentenceResponse
                 |> Action.google
             )
 
@@ -187,26 +187,26 @@ type alias MinedWord =
 
 addPendingSentenceRequest :
     PendingSentence
-    -> ParamTask Requests.Error ()
-addPendingSentenceRequest { word, sentence, tags } sheetId =
-    Time.now
+    -> Task.SheetsTask ()
+addPendingSentenceRequest { word, sentence, tags } =
+    Task.platform Time.now
         |> Task.andThen
             (\time ->
-                Requests.sheetBatchUpdateAndGetGridDataRequest
+                Sheets.batchUpdateAndGetGridDataRequest
                     [ AppendCells
                         { sheetId = Constants.subSheetId PendingSentences
                         , rows =
-                            Requests.sheetRequestRow
+                            Sheets.sheetRequestRow
                                 [ StringValue word
                                 , StringValue sentence
-                                , Requests.tagsExtendedValue tags
-                                , Requests.iso8601ExtendedValue time
+                                , Sheets.tagsExtendedValue tags
+                                , Sheets.iso8601ExtendedValue time
                                 ]
                         , fields = "userEnteredValue"
                         }
                     , UpdateCells
                         { rows =
-                            Requests.sheetRequestRow
+                            Sheets.sheetRequestRow
                                 [ FormulaValue
                                     ("=QUERY("
                                         ++ Constants.subSheetName MinedWords
@@ -231,24 +231,27 @@ addPendingSentenceRequest { word, sentence, tags } sheetId =
                         }
                     ]
                     [ Constants.subSheetName Query ++ "!A1:B" ]
-                    sheetId
-                    |> Requests.buildTask
             )
         |> Task.map extractMinedWords
         |> Task.andThen
             (\mined_words ->
                 -- a fail safe for a case where the query fails for whatever
                 -- reason, so that it doesn't simply nuke the entire subsheet
+                --
+                -- this has a side effect of preventing a valid case that
+                -- would leave the mined_words spreadsheet empty (when the user
+                -- mines a word that happens to be the only word in mined_words
+                -- spreadsheet)
                 if List.length mined_words == 0 then
                     Task.succeed ()
 
                 else
                     -- potential race condition can happen here if the same user
                     -- tries to mine a word on two devices at the same time
-                    Requests.sheetBatchUpdateRequest
+                    Sheets.batchUpdateRequest
                         [ UpdateCells
                             { rows =
-                                Requests.sheetRequestRows <|
+                                Sheets.sheetRequestRows <|
                                     List.map
                                         (\mined_word ->
                                             [ StringValue mined_word.word
@@ -268,12 +271,10 @@ addPendingSentenceRequest { word, sentence, tags } sheetId =
                                 }
                             }
                         ]
-                        sheetId
-                        |> Requests.buildTask
             )
 
 
-extractMinedWords : Requests.SheetResponseBatchUpdate -> List MinedWord
+extractMinedWords : Sheets.ResponseBatchUpdate -> List MinedWord
 extractMinedWords batchUpdate =
     batchUpdate.updatedSpreadsheet.sheets
         |> List.head
