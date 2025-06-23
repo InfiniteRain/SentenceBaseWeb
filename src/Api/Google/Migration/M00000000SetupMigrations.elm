@@ -12,8 +12,10 @@ import Api.Google.Exchange.Sheets as Sheets
         , ResponseCellExtendedData(..)
         )
 import Api.Google.Exchange.Task as Task
+import Api.Google.ListConstructor exposing (cellStringValue)
 import Api.Google.Migration.Config as Config_
 import Api.Google.Migration.Effect as Effect exposing (EffectWithPayload)
+import Api.Google.Model as Model
 import Http
 import Set exposing (Set)
 
@@ -173,29 +175,26 @@ getQueryCellEffect =
 
 
 extractAppliedMigrations : Sheets.ResponseGetSubSheetData -> Set String
-extractAppliedMigrations sheetData =
-    sheetData.sheets
-        |> List.head
-        |> Maybe.map .data
-        |> Maybe.andThen List.head
-        |> Maybe.andThen .rowData
-        |> Maybe.withDefault []
-        |> List.map
-            (.values
-                >> Maybe.andThen List.head
-                >> Maybe.andThen .effectiveValue
-                >> Maybe.andThen
-                    (\value ->
-                        case value of
-                            ResponseString string ->
-                                Just string
+extractAppliedMigrations =
+    Model.fromGridData maybeConstructAppliedMigration
+        >> Set.fromList
 
-                            _ ->
-                                Nothing
-                    )
+
+maybeConstructAppliedMigration :
+    List Sheets.ResponseCellData
+    -> Maybe String
+maybeConstructAppliedMigration =
+    List.head
+        >> Maybe.andThen .effectiveValue
+        >> Maybe.andThen
+            (\value ->
+                case value of
+                    ResponseString string ->
+                        Just string
+
+                    _ ->
+                        Nothing
             )
-        |> List.filterMap identity
-        |> Set.fromList
 
 
 extractTitle : Sheets.ResponseGetSubSheetData -> Maybe String

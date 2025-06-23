@@ -293,6 +293,13 @@ view model =
                         )
                     |> Maybe.withDefault []
                 , [ br [] [] ]
+                , [ button
+                        [ disabled (model.selectedWord == Nothing)
+                        , onClick MineClicked
+                        ]
+                        [ text "Mine" ]
+                  ]
+                , [ br [] [] ]
                 , case model.definitionState of
                     WordNotSelected ->
                         [ span [] [ text "Select a word" ] ]
@@ -313,13 +320,6 @@ view model =
                         , onInput OnTagsInputChanged
                         ]
                         []
-                  ]
-                , [ br [] [] ]
-                , [ button
-                        [ disabled (model.selectedWord == Nothing)
-                        , onClick MineClicked
-                        ]
-                        [ text "Mine" ]
                   ]
                 , [ br [] [] ]
                 , [ br [] [] ]

@@ -23,6 +23,7 @@ import Api.Google.ListConstructor
         , extract
         , field
         )
+import Api.Google.Model as Model
 import Array exposing (Array)
 import Html exposing (Html, button, div, hr, li, span, text, ul)
 import Html.Attributes exposing (disabled)
@@ -39,7 +40,7 @@ import Time
 
 type alias Model =
     { session : Session
-    , pendingSentences : Array PendingSentence
+    , pendingSentences : Array Model.PendingSentence
     , selectedSentences : Array Int
     , deselectedSentences : Array Int
     , confirmBatchRequesState : ConfirmBatchRequesState
@@ -49,14 +50,6 @@ type alias Model =
 type ConfirmBatchRequesState
     = Idle
     | Loading
-
-
-type alias PendingSentence =
-    { word : String
-    , sentence : String
-    , tags : List String
-    , added_at : Time.Posix
-    }
 
 
 init : Session -> ( Model, Cmd Msg, Action Msg )
@@ -81,7 +74,7 @@ type Msg
     = ReceivedPendingSentencesList
         (Result
             Task.Error
-            (Array PendingSentence)
+            (Array Model.PendingSentence)
         )
     | Selected Int
     | Deselected Int
@@ -173,7 +166,7 @@ update msg model =
             )
 
 
-getPendingSentencesRequest : Task.SheetsTask (Array PendingSentence)
+getPendingSentencesRequest : Task.SheetsTask (Array Model.PendingSentence)
 getPendingSentencesRequest =
     Sheets.getSubSheetDataRequest
         [ { sheetId = Constants.subSheetId PendingSentences
@@ -183,45 +176,32 @@ getPendingSentencesRequest =
           , endColumnIndex = Just 4
           }
         ]
-        |> Task.map
-            (.sheets
-                >> List.head
-                >> Maybe.map .data
-                >> Maybe.andThen List.head
-                >> Maybe.andThen .rowData
-                >> Maybe.withDefault []
-                >> List.map
-                    (.values
-                        >> Maybe.withDefault []
-                        >> maybeConstructPendingSentence
-                    )
-                >> List.filterMap identity
-                >> Array.fromList
-            )
+        |> Task.map (Model.fromGridData maybeConstructPendingSentence)
+        |> Task.map Array.fromList
 
 
 maybeConstructPendingSentence :
     List Sheets.ResponseCellData
-    -> Maybe PendingSentence
-maybeConstructPendingSentence row =
-    constructFromList PendingSentence row
-        |> field cellStringValue
-        |> field cellStringValue
-        |> field
+    -> Maybe Model.PendingSentence
+maybeConstructPendingSentence =
+    constructFromList Model.PendingSentence
+        >> field cellStringValue
+        >> field cellStringValue
+        >> field
             (cellStringValue
                 >> Maybe.map (Decode.decodeString (Decode.list Decode.string))
                 >> Maybe.andThen Result.toMaybe
             )
-        |> field
+        >> field
             (cellStringValue
                 >> Maybe.map Iso8601.toTime
                 >> Maybe.andThen Result.toMaybe
             )
-        |> extract
+        >> extract
 
 
 confirmBatchRequest :
-    { pendingSentences : Array PendingSentence
+    { pendingSentences : Array Model.PendingSentence
     , selectedSentences : Array Int
     , deselectedSentences : Array Int
     , batchId : String
@@ -372,7 +352,7 @@ type Ableness
 
 viewSentences :
     Array Int
-    -> Array PendingSentence
+    -> Array Model.PendingSentence
     -> (Int -> Msg)
     -> Ableness
     -> List (Html Msg)
@@ -394,8 +374,8 @@ viewSentences indexes pendingSentences onButtonClick ableness =
 
 sentencesFromIndexes :
     Array Int
-    -> Array PendingSentence
-    -> List ( Int, PendingSentence )
+    -> Array Model.PendingSentence
+    -> List ( Int, Model.PendingSentence )
 sentencesFromIndexes indexes pendingSentences =
     indexes
         |> Array.toList
