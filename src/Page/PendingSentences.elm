@@ -259,7 +259,7 @@ confirmBatchRequest config =
                                         , Sheets.iso8601ExtendedValue time
                                         ]
                                     )
-                                |> Sheets.sheetRequestRows
+                                |> Sheets.requestRows
                         , fields = "userEnteredValue"
                         }
                     , RequestAppendCells
@@ -272,7 +272,7 @@ confirmBatchRequest config =
                                         , Sheets.iso8601ExtendedValue time
                                         ]
                                     )
-                                |> Sheets.sheetRequestRows
+                                |> Sheets.requestRows
                         , fields = "userEnteredValue"
                         }
                     , RequestAppendCells
@@ -287,7 +287,7 @@ confirmBatchRequest config =
                                         , Sheets.iso8601ExtendedValue time
                                         ]
                                     )
-                                |> Sheets.sheetRequestRows
+                                |> Sheets.requestRows
                         , fields = "userEnteredValue"
                         }
                     , RequestDeleteRange

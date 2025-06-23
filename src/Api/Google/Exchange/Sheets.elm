@@ -12,8 +12,8 @@ module Api.Google.Exchange.Sheets exposing
     , batchUpdateRequest
     , getSubSheetDataRequest
     , iso8601ExtendedValue
-    , sheetRequestRow
-    , sheetRequestRows
+    , requestRow
+    , requestRows
     , tagsExtendedValue
     )
 
@@ -410,6 +410,14 @@ type RequestBatchUpdateKind
         { properties : RequestProperties
         , fields : String
         }
+    | RequestInsertDimension
+        { range : RequestDimensionRange
+        , inheritFromBefore : Bool
+        }
+    | RequestDeleteDuplicates
+        { range : RequestGridRange
+        , comparisonColumns : List RequestDimensionRange
+        }
 
 
 requestBatchUpdateKindEncoder : RequestBatchUpdateKind -> Encode.Value
@@ -491,6 +499,28 @@ requestBatchUpdateKindEncoder kind =
                           , requestPropertiesEncoder properties
                           )
                         , ( "fields", Encode.string fields )
+                        ]
+                  )
+                ]
+
+            RequestInsertDimension { range, inheritFromBefore } ->
+                [ ( "insertDimension"
+                  , Encode.object
+                        [ ( "range", requestDimensionRangeEncoder range )
+                        , ( "inheritFromBefore", Encode.bool inheritFromBefore )
+                        ]
+                  )
+                ]
+
+            RequestDeleteDuplicates { range, comparisonColumns } ->
+                [ ( "deleteDuplicates"
+                  , Encode.object
+                        [ ( "range", requestGridRangeEncoder range )
+                        , ( "comparisonColumns"
+                          , Encode.list
+                                requestDimensionRangeEncoder
+                                comparisonColumns
+                          )
                         ]
                   )
                 ]
@@ -750,15 +780,15 @@ validationFormula columns =
         ++ ")"
 
 
-sheetRequestRow : List RequestExtendedValue -> List RequestRowData
-sheetRequestRow values =
-    sheetRequestRows [ values ]
+requestRow : List RequestExtendedValue -> List RequestRowData
+requestRow values =
+    requestRows [ values ]
 
 
-sheetRequestRows :
+requestRows :
     List (List RequestExtendedValue)
     -> List RequestRowData
-sheetRequestRows rows =
+requestRows rows =
     List.map
         (\values ->
             { values =

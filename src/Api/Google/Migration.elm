@@ -250,7 +250,7 @@ fillMigrationsRequest migrationId time =
         [ RequestAppendCells
             { sheetId = Constants.subSheetId Migrations
             , rows =
-                Sheets.sheetRequestRow
+                Sheets.requestRow
                     [ RequestString migrationId
                     , RequestString <| Iso8601.fromTime time
                     ]

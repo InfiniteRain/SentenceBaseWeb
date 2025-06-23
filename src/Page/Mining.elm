@@ -9,13 +9,6 @@ import Api.Google.Exchange.Sheets as Sheets
         , RequestExtendedValue(..)
         )
 import Api.Google.Exchange.Task as Task
-import Api.Google.ListConstructor
-    exposing
-        ( cellStringValue
-        , constructFromList
-        , extract
-        , field
-        )
 import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
 import Html
     exposing
@@ -33,7 +26,6 @@ import Html
 import Html.Attributes exposing (class, disabled, style, type_, value)
 import Html.Events exposing (onClick, onInput, stopPropagationOn)
 import Http
-import Iso8601
 import Json.Decode as Decode
 import Port
 import Regex
@@ -193,12 +185,6 @@ type alias PendingSentence =
     }
 
 
-type alias MinedWord =
-    { word : String
-    , mined_at : Time.Posix
-    }
-
-
 addPendingSentenceRequest :
     PendingSentence
     -> Task.SheetsTask ()
@@ -206,11 +192,11 @@ addPendingSentenceRequest { word, sentence, tags } =
     Task.platform Time.now
         |> Task.andThen
             (\time ->
-                Sheets.batchUpdateAndGetGridDataRequest
+                Sheets.batchUpdateRequest
                     [ RequestAppendCells
                         { sheetId = Constants.subSheetId PendingSentences
                         , rows =
-                            Sheets.sheetRequestRow
+                            Sheets.requestRow
                                 [ RequestString word
                                 , RequestString sentence
                                 , Sheets.tagsExtendedValue tags
@@ -218,97 +204,54 @@ addPendingSentenceRequest { word, sentence, tags } =
                                 ]
                         , fields = "userEnteredValue"
                         }
+                    , RequestInsertDimension
+                        { range =
+                            { sheetId = Constants.subSheetId MinedWords
+                            , dimension = RequestRows
+                            , startIndex = 1
+                            , endIndex = 2
+                            }
+                        , inheritFromBefore = True
+                        }
                     , RequestUpdateCells
-                        { rows =
-                            Sheets.sheetRequestRow
-                                [ RequestFormula
-                                    ("=QUERY("
-                                        ++ Constants.subSheetName MinedWords
-                                        ++ "!"
-                                        ++ "A2:B,"
-                                        ++ "\""
-                                        ++ "SELECT * WHERE A != \"\""
-                                        ++ String.replace "\"" "" word
-                                        ++ "\"\""
-                                        ++ "\""
-                                        ++ ")"
-                                    )
-                                ]
+                        { rows = Sheets.requestRow [ RequestString word ]
                         , fields = "userEnteredValue"
                         , range =
-                            { sheetId = Constants.subSheetId Query
-                            , startRowIndex = Just 0
-                            , endRowIndex = Just 1
+                            { sheetId = Constants.subSheetId MinedWords
+                            , startRowIndex = Just 1
+                            , endRowIndex = Just 2
                             , startColumnIndex = Just 0
                             , endColumnIndex = Just 1
                             }
                         }
-                    ]
-                    [ Constants.subSheetName Query ++ "!A1:B" ]
-            )
-        |> Task.map extractMinedWords
-        |> Task.andThen
-            (\mined_words ->
-                -- a fail safe for a case where the query fails for whatever
-                -- reason, so that it doesn't simply nuke the entire subsheet
-                --
-                -- this has a side effect of preventing a valid case that
-                -- would leave the mined_words spreadsheet empty (when the user
-                -- mines a word that happens to be the only word in mined_words
-                -- spreadsheet)
-                if List.length mined_words == 0 then
-                    Task.succeed ()
-
-                else
-                    -- potential race condition can happen here if the same user
-                    -- tries to mine a word on two devices at the same time
-                    Sheets.batchUpdateRequest
-                        [ RequestUpdateCells
-                            { rows =
-                                Sheets.sheetRequestRows <|
-                                    List.map
-                                        (\mined_word ->
-                                            [ RequestString mined_word.word
-                                            , RequestString <|
-                                                Iso8601.fromTime
-                                                    mined_word.mined_at
-                                            ]
-                                        )
-                                        mined_words
-                            , fields = "userEnteredValue"
-                            , range =
-                                { sheetId = Constants.subSheetId MinedWords
-                                , startRowIndex = Just 1
-                                , endRowIndex = Nothing
-                                , startColumnIndex = Just 0
-                                , endColumnIndex = Just 2
-                                }
+                    , RequestDeleteDuplicates
+                        { range =
+                            { sheetId = Constants.subSheetId MinedWords
+                            , startRowIndex = Just 1
+                            , endRowIndex = Nothing
+                            , startColumnIndex = Just 0
+                            , endColumnIndex = Just 2
                             }
-                        ]
+                        , comparisonColumns =
+                            [ { sheetId = Constants.subSheetId MinedWords
+                              , dimension = RequestColumns
+                              , startIndex = 0
+                              , endIndex = 1
+                              }
+                            ]
+                        }
+                    , RequestDeleteRange
+                        { range =
+                            { sheetId = Constants.subSheetId MinedWords
+                            , startRowIndex = Just 1
+                            , endRowIndex = Just 2
+                            , startColumnIndex = Just 0
+                            , endColumnIndex = Just 2
+                            }
+                        , dimension = RequestRows
+                        }
+                    ]
             )
-
-
-extractMinedWords : Sheets.ResponseBatchUpdate -> List MinedWord
-extractMinedWords batchUpdate =
-    batchUpdate.updatedSpreadsheet.sheets
-        |> List.head
-        |> Maybe.map .data
-        |> Maybe.andThen List.head
-        |> Maybe.andThen .rowData
-        |> Maybe.withDefault []
-        |> List.map
-            (.values
-                >> Maybe.withDefault []
-                >> constructFromList MinedWord
-                >> field cellStringValue
-                >> field
-                    (cellStringValue
-                        >> Maybe.map Iso8601.toTime
-                        >> Maybe.andThen Result.toMaybe
-                    )
-                >> extract
-            )
-        |> List.filterMap identity
 
 
 
