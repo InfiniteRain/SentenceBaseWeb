@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+// ELM
+
 declare module "*.elm" {
   export const Elm: ElmInstance;
 }
@@ -18,6 +20,8 @@ type ElmMain = {
     } & (U extends undefined ? {} : { flags: U }),
   ): ElmApp<T>;
 };
+
+// ELM PORT
 
 type ElmReceivePort<T> = {
   subscribe(handler: (value: T) => void): void;
