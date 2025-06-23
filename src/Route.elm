@@ -13,6 +13,7 @@ type Route
     = Auth
     | Mining
     | PendingSentences
+    | Batches
 
 
 parser : Parser (Route -> a) a
@@ -21,6 +22,7 @@ parser =
         [ Parser.map Auth Parser.top
         , Parser.map Mining (s "mining")
         , Parser.map PendingSentences (s "pendingSentences")
+        , Parser.map Batches (s "batches")
         ]
 
 
@@ -54,3 +56,6 @@ routeToSegments route =
 
         PendingSentences ->
             [ "pendingSentences" ]
+
+        Batches ->
+            [ "batches" ]

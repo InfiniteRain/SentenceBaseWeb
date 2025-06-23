@@ -11,6 +11,7 @@ import Html exposing (Html, a, span, text)
 import Html.Attributes exposing (href)
 import OutMsg exposing (OutMsg)
 import Page.Auth as Auth exposing (Msg(..))
+import Page.Batches as Batches
 import Page.Mining as Mining exposing (Msg(..))
 import Page.PendingSentences as PendingSentences
 import Random
@@ -121,12 +122,14 @@ type PageMsg
     = GotAuthMsg Auth.Msg
     | GotMiningMsg Mining.Msg
     | GotPendingSentencesMsg PendingSentences.Msg
+    | GotBatchesMsg Batches.Msg
 
 
 type PageModel
     = Auth Auth.Model
     | Mining Mining.Model
     | PendingSentences PendingSentences.Model
+    | Batches Batches.Model
 
 
 updatePage : PageMsg -> PageModel -> Update
@@ -156,13 +159,15 @@ updatePage pageMsg pageModel =
                 GotPendingSentencesMsg
                 PendingSentences
 
+        ( GotBatchesMsg subMsg, Batches subModel ) ->
+            updateWithPage
+                subMsg
+                subModel
+                Batches.update
+                GotBatchesMsg
+                Batches
+
         _ ->
-            let
-                _ =
-                    Debug.log
-                        "invalid page update combination"
-                        ( pageMsg, pageModel )
-            in
             \model -> ( model, Cmd.none )
 
 
@@ -186,6 +191,13 @@ routeToPage maybeRoute session =
                 GotPendingSentencesMsg
                 PendingSentences
 
+        Just Route.Batches ->
+            initPageWith
+                session
+                Batches.init
+                GotBatchesMsg
+                Batches
+
         Nothing ->
             initAuth session
 
@@ -193,14 +205,17 @@ routeToPage maybeRoute session =
 pageToSession : PageModel -> Session
 pageToSession page =
     case page of
-        Auth model ->
-            model.session
+        Auth { session } ->
+            session
 
-        Mining model ->
-            model.session
+        Mining { session } ->
+            session
 
-        PendingSentences model ->
-            model.session
+        PendingSentences { session } ->
+            session
+
+        Batches { session } ->
+            session
 
 
 initAuth : Session -> ( PageModel, Cmd Msg, Action Msg )
@@ -232,6 +247,12 @@ pageSubscriptions pageModel =
                 PendingSentences.subscriptions
                 subModel
 
+        Batches subModel ->
+            subscribePage
+                GotBatchesMsg
+                Batches.subscriptions
+                subModel
+
 
 pageView : PageModel -> Browser.Document Msg
 pageView pageModel =
@@ -247,6 +268,9 @@ pageView pageModel =
                 GotPendingSentencesMsg
                 PendingSentences.view
                 subModel
+
+        Batches subModel ->
+            viewWithPage GotBatchesMsg Batches.view subModel
 
 
 
@@ -512,6 +536,8 @@ view model =
                 [ a [ href "/mining" ] [ text "Mining" ]
                 , span [] [ text " " ]
                 , a [ href "/pendingSentences" ] [ text "Sentences" ]
+                , span [] [ text " " ]
+                , a [ href "/batches" ] [ text "Batches" ]
                 ]
         )
             ++ body
