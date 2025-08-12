@@ -4,13 +4,17 @@ module Basecoat exposing
     , ariaHidden
     , ariaLabel
     , ariaLabelledBy
+    , ariaOrientation
+    , ariaRole
+    , ariaSelected
+    , classes
     , dataAlign
     , dataSide
     , dataSideBarInitialized
     , dataTooltip
     , inert
     , role
-    , staticClasses
+    , tabIndex
     )
 
 import Html exposing (Attribute)
@@ -46,6 +50,21 @@ ariaCurrent value =
     attribute "aria-current" value
 
 
+ariaOrientation : String -> Attribute msg
+ariaOrientation value =
+    attribute "aria-orientation" value
+
+
+ariaRole : String -> Attribute msg
+ariaRole value =
+    attribute "aria-role" value
+
+
+ariaSelected : Bool -> Attribute msg
+ariaSelected value =
+    attribute "aria-selected" (boolToString value)
+
+
 dataAlign : String -> Attribute msg
 dataAlign value =
     attribute "data-align" value
@@ -76,8 +95,13 @@ inert value =
     attribute "inert" value
 
 
-staticClasses : List String -> Attribute msg
-staticClasses =
+tabIndex : String -> Attribute msg
+tabIndex value =
+    attribute "tabindex" value
+
+
+classes : List String -> Attribute msg
+classes =
     List.map (\x -> ( x, True ))
         >> classList
 

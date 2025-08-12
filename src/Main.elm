@@ -11,13 +11,13 @@ import Basecoat
         , ariaHidden
         , ariaLabel
         , ariaLabelledBy
+        , classes
         , dataAlign
         , dataSide
         , dataSideBarInitialized
         , dataTooltip
         , inert
         , role
-        , staticClasses
         )
 import Browser
 import Browser.Dom as Dom exposing (Viewport)
@@ -42,6 +42,7 @@ import Html
 import Html.Attributes
     exposing
         ( class
+        , classList
         , href
         , id
         , type_
@@ -598,17 +599,29 @@ view model =
     let
         { title, body } =
             pageView model.page
+
+        bodyPage =
+            [ div
+                [ classes
+                    [ "p-4"
+                    , "grow-1"
+                    , "shrink-1"
+                    , "basis-auto"
+                    ]
+                ]
+                body
+            ]
     in
     { title = title
     , body =
         case model.page of
             Auth _ ->
-                body
+                bodyPage
 
             _ ->
                 [ sideBarView model
-                , main_ [ id "content" ]
-                    (headerView :: body)
+                , main_ [ id "content", class "h-screen flex flex-col" ]
+                    (headerView :: bodyPage)
                 ]
     }
 
@@ -648,7 +661,7 @@ sideBarView model =
         [ nav [ ariaLabel "Sidebar navigation" ]
             [ header []
                 [ div
-                    [ staticClasses
+                    [ classes
                         [ "flex"
                         , "p-2"
                         , "h-12"
@@ -658,7 +671,7 @@ sideBarView model =
                         ]
                     ]
                     [ div
-                        [ staticClasses
+                        [ classes
                             [ "bg-sidebar-primary"
                             , "text-sidebar-primary-foreground"
                             , "flex"
@@ -672,7 +685,7 @@ sideBarView model =
                         ]
                         [ pickaxeIcon [] ]
                     , div
-                        [ staticClasses
+                        [ classes
                             [ "grid"
                             , "flex-1"
                             , "text-left"
@@ -680,10 +693,10 @@ sideBarView model =
                             , "leading-tight"
                             ]
                         ]
-                        [ span [ staticClasses [ "truncate", "font-medium" ] ]
+                        [ span [ classes [ "truncate", "font-medium" ] ]
                             [ text "Sentence Base" ]
                         , span
-                            [ staticClasses [ "truncate", "text-xs" ] ]
+                            [ classes [ "truncate", "text-xs" ] ]
                             [ text "v0.0.1" ]
                         ]
                     ]
@@ -740,7 +753,7 @@ sideBarView model =
 headerView : Html Msg
 headerView =
     header
-        [ staticClasses
+        [ classes
             [ "bg-background"
             , "sticky"
             , "inset-x-0"
@@ -755,7 +768,7 @@ headerView =
             ]
         ]
         [ div
-            [ staticClasses
+            [ classes
                 [ "flex", "h-14", "w-full", "items-center", "gap-2", "px-4" ]
             ]
             [ button
@@ -763,7 +776,7 @@ headerView =
                 , dataAlign "start"
                 , dataSide "bottom"
                 , dataTooltip "Toggle sidebar"
-                , staticClasses
+                , classes
                     [ "btn-sm-icon-ghost"
                     , "mr-auto"
                     , "size-7"

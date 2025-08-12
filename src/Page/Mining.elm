@@ -10,22 +10,43 @@ import Api.Google.Exchange.Sheets as Sheets
         )
 import Api.Google.Exchange.Task as Task
 import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
+import Basecoat
+    exposing
+        ( ariaControls
+        , ariaLabelledBy
+        , ariaOrientation
+        , ariaSelected
+        , classes
+        , role
+        , tabIndex
+        )
 import Html
     exposing
         ( Attribute
         , Html
-        , br
         , button
         , div
-        , input
+        , h2
+        , header
         , li
-        , span
+        , nav
+        , p
+        , section
         , text
         , ul
         )
-import Html.Attributes exposing (class, disabled, style, type_, value)
-import Html.Events exposing (onClick, onInput, stopPropagationOn)
+import Html.Attributes
+    exposing
+        ( class
+        , disabled
+        , hidden
+        , id
+        , style
+        , type_
+        )
+import Html.Events exposing (onClick, stopPropagationOn)
 import Http
+import Icon.Warn exposing (warnIcon)
 import Json.Decode as Decode
 import Port
 import Regex
@@ -42,6 +63,7 @@ import Time
 
 type alias Model =
     { session : Session
+    , tab : Tab
     , sentence : String
     , sentenceWords : List String
     , tagsInput : String
@@ -49,6 +71,11 @@ type alias Model =
     , definitionState : DefinitionState
     , addRequestState : AddRequestState
     }
+
+
+type Tab
+    = MiningTab
+    | PendingSentencesTab
 
 
 type DefinitionState
@@ -67,6 +94,7 @@ type AddRequestState
 init : Session -> ( Model, Cmd Msg, Action Msg )
 init session =
     ( { session = session
+      , tab = MiningTab
       , sentence = ""
       , sentenceWords = []
       , tagsInput = ""
@@ -84,7 +112,8 @@ init session =
 
 
 type Msg
-    = BodyClicked
+    = TabClicked Tab
+    | BodyClicked
     | ClipboardUpdated (TaskPort.Result String)
     | WordSelected String
     | DefinitionFetched (Result Http.Error Wiktionary.Usages)
@@ -97,13 +126,23 @@ type Msg
 update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
 update msg model =
     case msg of
+        TabClicked tab ->
+            ( { model | tab = tab }
+            , Cmd.none
+            , Action.none
+            )
+
         ClipboardUpdated (Ok str) ->
-            if str == model.sentence then
+            let
+                trimmed =
+                    String.trim str
+            in
+            if trimmed == model.sentence then
                 ( model, Cmd.none, Action.none )
 
             else
                 ( { model
-                    | sentence = String.trim str
+                    | sentence = trimmed
                     , sentenceWords = RegexExtra.sentenceSplit str
                     , selectedWord = Nothing
                     , definitionState = WordNotSelected
@@ -272,82 +311,204 @@ view model =
     { title = "Mining"
     , content =
         div
-            [ style "width" "100%"
-            , style "height" "100%"
+            [ classes
+                [ "flex"
+                , "shrink-0"
+                , "grow-0"
+                , "justify-center"
+                , "h-full"
+                ]
             , onClick BodyClicked
             ]
-            (List.concat
-                [ List.map
-                    (\word ->
-                        button
-                            [ class "btn"
-                            , onClick (WordSelected (String.toLower word))
-                            ]
-                            [ text word ]
-                    )
-                    model.sentenceWords
-                , model.selectedWord
-                    |> Maybe.map
-                        (\word ->
-                            [ br [] []
-                            , span [] [ text word ]
-                            ]
-                        )
-                    |> Maybe.withDefault []
-                , [ br [] [] ]
-                , [ button
-                        [ class "btn"
-                        , disabled (model.selectedWord == Nothing)
-                        , onClick MineClicked
+            [ div [ classes [ "tabs", "basis-md" ] ]
+                [ nav
+                    [ ariaOrientation "horizontal"
+                    , class "w-full"
+                    , role "tablist"
+                    ]
+                    [ button
+                        [ ariaControls "tabs-mining"
+                        , ariaSelected (model.tab == MiningTab)
+                        , id "tabs-mining"
+                        , role "tab"
+                        , tabIndex "0"
+                        , type_ "button"
+                        , onClick (TabClicked MiningTab)
                         ]
-                        [ text "Mine" ]
-                  ]
-                , [ br [] [] ]
-                , case model.definitionState of
-                    WordNotSelected ->
-                        [ span [] [ text "Select a word" ] ]
-
-                    Loading ->
-                        [ span [] [ text "Fetching definitions..." ] ]
-
-                    Fetched definition ->
-                        [ usagesView definition ]
-
-                    NotFound ->
-                        [ span [] [ text "Definition was not found" ] ]
-                , [ br [] [] ]
-                , [ input
-                        [ type_ "text"
-                        , value model.tagsInput
-                        , onClick Noop
-                        , onInput OnTagsInputChanged
+                        [ text "Mining" ]
+                    , button
+                        [ ariaControls "tabs-pending-sentences"
+                        , ariaSelected (model.tab == PendingSentencesTab)
+                        , id "demo-tabs-with-panels-tab-2"
+                        , role "tab"
+                        , tabIndex "0"
+                        , type_ "button"
+                        , onClick (TabClicked PendingSentencesTab)
                         ]
-                        []
-                  ]
-                , [ br [] [] ]
-                , [ br [] [] ]
-                , [ br [] [] ]
-                , [ br [] [] ]
-                , [ br [] [] ]
-                , [ div [] [ text "wij hebben een serieus probleem" ] ]
-                , [ div [] [ text "geef me een klap papa" ] ]
-                , [ div [] [ text "kan je 't goed zien?" ] ]
+                        [ text "Pending Sentences" ]
+                    ]
+                , div
+                    [ ariaLabelledBy "tabs-mining"
+                    , ariaSelected (model.tab == MiningTab)
+                    , hidden (model.tab /= MiningTab)
+                    , id "tabs-mining"
+                    , role "tabpanel"
+                    , tabIndex "-1"
+                    ]
+                    [ miningTabView model ]
+                , div
+                    [ ariaLabelledBy "tabs-pending-sentences"
+                    , ariaSelected (model.tab == PendingSentencesTab)
+                    , hidden (model.tab /= PendingSentencesTab)
+                    , id "tabs-pending-sentences"
+                    , role "tabpanel"
+                    , tabIndex "-1"
+                    ]
+                    [ pendingSentencesTabView model ]
                 ]
-            )
+            ]
     }
 
 
-usagesView : Wiktionary.Usages -> Html Msg
+miningTabView : Model -> Html Msg
+miningTabView model =
+    div [ classes [ "flex flex-col h-full mt-2" ] ]
+        [ if List.length model.sentenceWords > 0 then
+            div
+                [ classes
+                    [ "grow-1"
+                    , "shrink-0"
+                    , "overflow-auto"
+                    , "basis-0"
+                    ]
+                , style "min-height" "0"
+                ]
+            <|
+                List.concat
+                    [ [ div [ classes [ "flex", "justify-center", "flex-wrap" ] ] <|
+                            List.map
+                                (\word ->
+                                    button
+                                        [ classes
+                                            [ "btn-outline"
+                                            , "m-1"
+                                            , "pt-1"
+                                            , "pb-1"
+                                            , "pr-2"
+                                            , "pl-2"
+                                            ]
+                                        , onClick
+                                            (WordSelected
+                                                (String.toLower word)
+                                            )
+                                        ]
+                                        [ text word ]
+                                )
+                                model.sentenceWords
+                      ]
+                    , dictionaryView model.selectedWord model.definitionState
+                    ]
+
+          else
+            div
+                [ classes
+                    [ "grow-1"
+                    , "shrink-1"
+                    , "basis-auto"
+                    , "flex"
+                    , "justify-center"
+                    , "items-center"
+                    ]
+                ]
+                [ text "Click to paste and analyze a sentence!" ]
+        , div [ classes [ "grow-0", "shrink-1", "mt-4" ] ]
+            [ button
+                [ classes [ "btn-primary", "w-full", "mb-4" ]
+                , disabled (model.selectedWord == Nothing)
+                , onClick MineClicked
+                ]
+                [ text "Mine Sentence" ]
+            ]
+        ]
+
+
+dictionaryView : Maybe String -> DefinitionState -> List (Html Msg)
+dictionaryView maybeWord definitionState =
+    case maybeWord of
+        Just word ->
+            List.concat
+                [ [ div [ classes [ "card", "p-1", "mt-4" ] ]
+                        [ header [ classes [ "p-0", "flex", "justify-center" ] ]
+                            [ p [ class "uppercase" ] [ text word ] ]
+                        ]
+                  ]
+                , case definitionState of
+                    WordNotSelected ->
+                        []
+
+                    Loading ->
+                        [ div [ classes [ "card", "p-3", "mt-4", "gap-2" ] ]
+                            [ header [ class "p-0" ]
+                                [ div
+                                    [ classes
+                                        [ "bg-accent"
+                                        , "animate-pulse"
+                                        , "rounded-md"
+                                        , "h-4"
+                                        , "w-2/3"
+                                        ]
+                                    ]
+                                    []
+                                ]
+                            , section [ class "p-0" ]
+                                [ div
+                                    [ classes
+                                        [ "bg-accent"
+                                        , "animate-pulse"
+                                        , "rounded-md"
+                                        , "h-16"
+                                        , "w-full"
+                                        ]
+                                    ]
+                                    []
+                                ]
+                            ]
+                        ]
+
+                    Fetched (Usages []) ->
+                        [ notFoundView ]
+
+                    Fetched usages ->
+                        usagesView usages
+
+                    NotFound ->
+                        [ notFoundView ]
+                ]
+
+        Nothing ->
+            []
+
+
+notFoundView : Html Msg
+notFoundView =
+    div [ classes [ "alert-destructive", "mt-4" ] ]
+        [ warnIcon []
+        , h2 [] [ text "Unable to find word definition." ]
+        ]
+
+
+usagesView : Wiktionary.Usages -> List (Html Msg)
 usagesView (Usages usages) =
-    div [] (List.indexedMap definitionsView usages)
+    List.indexedMap definitionsView usages
 
 
 definitionsView : Int -> Wiktionary.Definitions -> Html Msg
 definitionsView index (Definitions definitions) =
-    div [ class "etimology" ]
-        [ text <| "Etimology " ++ String.fromInt (index + 1)
-        , ul []
-            (List.map definitionView definitions)
+    div [ classes [ "card", "p-3", "mt-4", "gap-0" ] ]
+        [ header [ classes [ "p-0", "flex", "justify-center" ] ]
+            [ text ("Etimology " ++ String.fromInt (index + 1)) ]
+        , section [ class "pl-4 pr-0" ]
+            [ ul [ class "list-decimal" ] (List.map definitionView definitions) ]
         ]
 
 
@@ -357,45 +518,72 @@ definitionView definition =
         List.concat
             [ Regex.split RegexExtra.newLines definition.text
                 |> List.map (\line -> div [] [ text (String.trim line) ])
-            , definition.formUsages |> List.concatMap formUsagesView
+            , definition.formUsages |> List.map formUsagesView
             ]
 
 
-formUsagesView : Wiktionary.FormUsages -> List (Html Msg)
+formUsagesView : Wiktionary.FormUsages -> Html Msg
 formUsagesView { word, usages } =
     let
         (Usages formUsages) =
             usages
     in
-    List.indexedMap
-        (\index (Definitions definitions) ->
-            div []
-                [ div [ class "etimology" ]
-                    [ text <|
-                        "Etimology "
-                            ++ String.fromInt (index + 1)
-                            ++ " for "
-                            ++ word
-                    , ul [] <|
-                        List.map
-                            (\definition ->
-                                li []
-                                    (Regex.split
-                                        RegexExtra.newLines
-                                        definition.text
-                                        |> List.map
-                                            (\line ->
-                                                div
-                                                    []
-                                                    [ text (String.trim line) ]
-                                            )
-                                    )
-                            )
-                            definitions
+    div [ classes [ "mb-4", "" ] ] <|
+        List.indexedMap
+            (\index (Definitions definitions) ->
+                div []
+                    [ div
+                        [ classes <|
+                            [ "gap-2"
+                            , "flex"
+                            , "flex-row"
+                            , "items-start"
+                            , "justify-between"
+                            , "rounded-lg"
+                            , "border"
+                            , "p-4"
+                            , "shadow-xs"
+                            , "mt-4"
+                            ]
+                        ]
+                        [ div [ classes [ "flex", "flex-col", "gap-0.5" ] ]
+                            [ p [ class "leading-normal" ]
+                                [ text <|
+                                    "Etimology "
+                                        ++ String.fromInt (index + 1)
+                                        ++ " for "
+                                        ++ word
+                                ]
+                            , p
+                                [ classes
+                                    [ "text-muted-foreground"
+                                    , "text-sm"
+                                    , "pl-4"
+                                    ]
+                                ]
+                                [ ul [] <|
+                                    List.map
+                                        (\definition ->
+                                            li [ class "list-disc" ]
+                                                (Regex.split
+                                                    RegexExtra.newLines
+                                                    definition.text
+                                                    |> List.map
+                                                        (text << String.trim)
+                                                )
+                                        )
+                                        definitions
+                                ]
+                            ]
+                        ]
                     ]
-                ]
-        )
-        formUsages
+            )
+            formUsages
+
+
+pendingSentencesTabView : Model -> Html Msg
+pendingSentencesTabView model =
+    div [] []
 
 
 onClick : msg -> Attribute msg
