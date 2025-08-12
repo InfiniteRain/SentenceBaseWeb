@@ -1,7 +1,8 @@
 import { defineConfig } from "vite";
 import elmPlugin from "vite-plugin-elm";
 import mkcert from "vite-plugin-mkcert";
+import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  plugins: [mkcert(), elmPlugin()],
+  plugins: [mkcert(), elmPlugin(), tailwindcss()],
 });

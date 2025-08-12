@@ -5,10 +5,51 @@ import Api.Google as Google exposing (Msg(..))
 import Api.Google.Constants exposing (SubSheet(..))
 import Api.Uuid as Uuid
 import Api.Wiktionary as Wiktionary exposing (Msg(..))
+import Basecoat
+    exposing
+        ( ariaCurrent
+        , ariaHidden
+        , ariaLabel
+        , ariaLabelledBy
+        , dataAlign
+        , dataSide
+        , dataSideBarInitialized
+        , dataTooltip
+        , inert
+        , role
+        , staticClasses
+        )
 import Browser
+import Browser.Dom as Dom exposing (Viewport)
 import Browser.Navigation as Nav
-import Html exposing (Html, a, span, text)
-import Html.Attributes exposing (href)
+import Html
+    exposing
+        ( Html
+        , a
+        , aside
+        , button
+        , div
+        , h3
+        , header
+        , li
+        , main_
+        , nav
+        , section
+        , span
+        , text
+        , ul
+        )
+import Html.Attributes
+    exposing
+        ( class
+        , href
+        , id
+        , type_
+        )
+import Html.Events exposing (onClick)
+import Icon.GitHub exposing (gitHubIcon)
+import Icon.Menu exposing (menuIcon)
+import Icon.Pickaxe exposing (pickaxeIcon)
 import OutMsg exposing (OutMsg)
 import Page.Auth as Auth exposing (Msg(..))
 import Page.Batches as Batches
@@ -17,6 +58,7 @@ import Page.PendingSentences as PendingSentences
 import Random
 import Route exposing (Route(..))
 import Session exposing (Session)
+import Task
 import Triple
 import UUID as UuidLib
 import Url exposing (Url)
@@ -280,6 +322,7 @@ pageView pageModel =
 type alias Model =
     { api : ApiModel
     , page : PageModel
+    , sideBarToggled : Bool
     }
 
 
@@ -298,6 +341,7 @@ init seeds url navKey =
         model =
             { api = apiModel
             , page = pageModel
+            , sideBarToggled = False
             }
 
         ( initialModel, initialPageCmd ) =
@@ -348,6 +392,10 @@ type Msg
     | LinkClicked Browser.UrlRequest
     | GotApiMsg ApiMsg
     | GotPageMsg PageMsg
+    | ToggledSideBar (Maybe String)
+    | BlurredSideBarItem
+    | ClickedSideBarItem String
+    | GotViewPort String Viewport
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -391,6 +439,31 @@ update msg model =
 
         ( GotPageMsg pageMsg, pageModel ) ->
             updatePage pageMsg pageModel model
+
+        ( ToggledSideBar maybeItemId, _ ) ->
+            case maybeItemId of
+                Just itemId ->
+                    ( model
+                    , Task.attempt (\_ -> BlurredSideBarItem) (Dom.blur itemId)
+                    )
+
+                Nothing ->
+                    ( { model | sideBarToggled = not model.sideBarToggled }
+                    , Cmd.none
+                    )
+
+        ( BlurredSideBarItem, _ ) ->
+            ( { model | sideBarToggled = not model.sideBarToggled }, Cmd.none )
+
+        ( ClickedSideBarItem itemId, _ ) ->
+            ( model, Task.perform (GotViewPort itemId) Dom.getViewport )
+
+        ( GotViewPort itemId viewport, _ ) ->
+            if viewport.scene.width < mobileSideBarViewportMinWidth then
+                update (ToggledSideBar <| Just itemId) model
+
+            else
+                ( model, Cmd.none )
 
 
 resolveOutMsgUpdates : Model -> Cmd Msg -> List Msg -> ( Model, Cmd Msg )
@@ -528,20 +601,180 @@ view model =
     in
     { title = title
     , body =
-        (case model.page of
+        case model.page of
             Auth _ ->
-                []
+                body
 
             _ ->
-                [ a [ href "/mining" ] [ text "Mining" ]
-                , span [] [ text " " ]
-                , a [ href "/pendingSentences" ] [ text "Sentences" ]
-                , span [] [ text " " ]
-                , a [ href "/batches" ] [ text "Batches" ]
+                [ sideBarView model
+                , main_ [ id "content" ]
+                    (headerView :: body)
                 ]
-        )
-            ++ body
     }
+
+
+sideBarView : Model -> Html Msg
+sideBarView model =
+    let
+        ( miningAttrs, batchesAttrs ) =
+            case model.page of
+                Auth _ ->
+                    ( [], [] )
+
+                Mining _ ->
+                    ( [ ariaCurrent "page" ], [] )
+
+                PendingSentences _ ->
+                    ( [], [] )
+
+                Batches _ ->
+                    ( [], [ ariaCurrent "page" ] )
+
+        sideBarAttrs =
+            if not model.sideBarToggled then
+                [ inert "" ]
+
+            else
+                []
+    in
+    aside
+        ([ ariaHidden (not model.sideBarToggled)
+         , class "sidebar"
+         , dataSide "left"
+         , dataSideBarInitialized True
+         ]
+            ++ sideBarAttrs
+        )
+        [ nav [ ariaLabel "Sidebar navigation" ]
+            [ header []
+                [ div
+                    [ staticClasses
+                        [ "flex"
+                        , "p-2"
+                        , "h-12"
+                        , "w-full"
+                        , "justify-start"
+                        , "gap-2"
+                        ]
+                    ]
+                    [ div
+                        [ staticClasses
+                            [ "bg-sidebar-primary"
+                            , "text-sidebar-primary-foreground"
+                            , "flex"
+                            , "aspect-square"
+                            , "size-8"
+                            , "items-center"
+                            , "justify-center"
+                            , "rounded-lg"
+                            , "p-1"
+                            ]
+                        ]
+                        [ pickaxeIcon [] ]
+                    , div
+                        [ staticClasses
+                            [ "grid"
+                            , "flex-1"
+                            , "text-left"
+                            , "text-sm"
+                            , "leading-tight"
+                            ]
+                        ]
+                        [ span [ staticClasses [ "truncate", "font-medium" ] ]
+                            [ text "Sentence Base" ]
+                        , span
+                            [ staticClasses [ "truncate", "text-xs" ] ]
+                            [ text "v0.0.1" ]
+                        ]
+                    ]
+                ]
+            , section [ class "scrollbar" ]
+                [ div [ ariaLabelledBy "group-label-content-1", role "group" ]
+                    [ h3 [ id "group-label-content-1" ]
+                        [ text "Navigation" ]
+                    , ul []
+                        [ li []
+                            [ a
+                                ([ href "/mining"
+                                 , id "link-mining"
+                                 , onClick (ClickedSideBarItem "link-mining")
+                                 ]
+                                    ++ miningAttrs
+                                )
+                                [ span []
+                                    [ text "Mining" ]
+                                ]
+                            ]
+                        , li []
+                            [ a
+                                ([ href "/batches"
+                                 , id "link-batches"
+                                 , onClick (ClickedSideBarItem "link-batches")
+                                 ]
+                                    ++ batchesAttrs
+                                )
+                                [ span []
+                                    [ text "Batches" ]
+                                ]
+                            ]
+                        ]
+                    ]
+                , div [ ariaLabelledBy "group-label-content-2", role "group" ]
+                    [ h3 [ id "group-label-content-2" ]
+                        [ text "About" ]
+                    , ul []
+                        [ li []
+                            [ a [ href "https://github.com/InfiniteRain/SentenceBaseWeb" ]
+                                [ gitHubIcon []
+                                , span [] [ text "GitHub" ]
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+        , div [ class "sidebar-backdrop", onClick (ToggledSideBar Nothing) ] []
+        ]
+
+
+headerView : Html Msg
+headerView =
+    header
+        [ staticClasses
+            [ "bg-background"
+            , "sticky"
+            , "inset-x-0"
+            , "top-0"
+            , "isolate"
+            , "flex"
+            , "shrink-0"
+            , "items-center"
+            , "gap-2"
+            , "border-b"
+            , "z-10"
+            ]
+        ]
+        [ div
+            [ staticClasses
+                [ "flex", "h-14", "w-full", "items-center", "gap-2", "px-4" ]
+            ]
+            [ button
+                [ ariaLabel "Toggle sidebar"
+                , dataAlign "start"
+                , dataSide "bottom"
+                , dataTooltip "Toggle sidebar"
+                , staticClasses
+                    [ "btn-sm-icon-ghost"
+                    , "mr-auto"
+                    , "size-7"
+                    , "-ml-1.5"
+                    ]
+                , type_ "button"
+                , onClick (ToggledSideBar Nothing)
+                ]
+                [ menuIcon [] ]
+            ]
+        ]
 
 
 viewWithPage :
@@ -557,6 +790,11 @@ viewWithPage toMsg viewFn subModel =
     { title = title
     , body = [ Html.map (GotPageMsg << toMsg) content ]
     }
+
+
+mobileSideBarViewportMinWidth : Float
+mobileSideBarViewportMinWidth =
+    768
 
 
 

@@ -280,7 +280,9 @@ view model =
                 [ List.map
                     (\word ->
                         button
-                            [ onClick (WordSelected (String.toLower word)) ]
+                            [ class "btn"
+                            , onClick (WordSelected (String.toLower word))
+                            ]
                             [ text word ]
                     )
                     model.sentenceWords
@@ -294,7 +296,8 @@ view model =
                     |> Maybe.withDefault []
                 , [ br [] [] ]
                 , [ button
-                        [ disabled (model.selectedWord == Nothing)
+                        [ class "btn"
+                        , disabled (model.selectedWord == Nothing)
                         , onClick MineClicked
                         ]
                         [ text "Mine" ]

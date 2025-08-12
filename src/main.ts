@@ -1,5 +1,6 @@
 import { Elm } from "./Main.elm";
 import * as TaskPort from "elm-taskport";
+import "./style.css";
 
 const CLIENT_ID = import.meta.env.VITE_CLIENT_ID;
 const API_KEY = import.meta.env.VITE_API_KEY;
