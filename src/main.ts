@@ -3,9 +3,13 @@ import * as TaskPort from "elm-taskport";
 import "./style.css";
 
 const CLIENT_ID = import.meta.env.VITE_CLIENT_ID;
-const SCOPES = ["https://www.googleapis.com/auth/drive.file"];
+const SCOPES = [
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/drive.file",
+];
 
 const LOCAL_STORAGE_KEYS = {
+  GOOGLE_EMAIL: "sentence_base_google_email",
   GOOGLE_TOKEN: "sentence_base_google_token",
 };
 
@@ -16,6 +20,22 @@ let tokenCallback!: (
 let tokenErrorCallback!: (
   error: google.accounts.oauth2.ClientConfigError,
 ) => void;
+
+const googleApiFetch = async <T>(
+  input: RequestInfo | URL,
+  token: string,
+  init?: RequestInit,
+): Promise<T> => {
+  const finalInit = {
+    ...init,
+    headers: {
+      ...init?.headers,
+      Authorization: `Bearer ${token}`,
+    },
+  };
+  let response = await fetch(input, finalInit);
+  return await response.json();
+};
 
 TaskPort.install({
   logCallErrors: true,
@@ -59,6 +79,17 @@ TaskPort.register(
 
       tokenCallback = async (arg) => {
         if (!arg.error) {
+          if (!localStorage.getItem(LOCAL_STORAGE_KEYS.GOOGLE_EMAIL)) {
+            const userInfo = await googleApiFetch<{ email: string }>(
+              "https://www.googleapis.com/oauth2/v2/userinfo",
+              arg.access_token,
+            );
+            localStorage.setItem(
+              LOCAL_STORAGE_KEYS.GOOGLE_EMAIL,
+              userInfo.email,
+            );
+          }
+
           localStorage.setItem(
             LOCAL_STORAGE_KEYS.GOOGLE_TOKEN,
             arg.access_token,
@@ -66,6 +97,7 @@ TaskPort.register(
 
           resolve(arg.access_token);
         } else if (arg.error === "interaction_required") {
+          localStorage.removeItem(LOCAL_STORAGE_KEYS.GOOGLE_EMAIL);
           localStorage.removeItem(LOCAL_STORAGE_KEYS.GOOGLE_TOKEN);
           location.reload();
         } else {
@@ -76,8 +108,10 @@ TaskPort.register(
         reject(new Error(err.message));
       };
 
-      if (token) {
-        tokenClient.requestAccessToken({ prompt: "none", login_hint: token });
+      const email = localStorage.getItem(LOCAL_STORAGE_KEYS.GOOGLE_EMAIL);
+
+      if (email) {
+        tokenClient.requestAccessToken({ prompt: "none", login_hint: email });
       } else {
         tokenClient.requestAccessToken({ prompt: "consent" });
       }
@@ -89,6 +123,16 @@ TaskPort.register("readClipboard", async () => {
     return await navigator.clipboard.readText();
   } catch {}
 });
+
+TaskPort.register(
+  "timeout",
+  (config: { id: number; timeout: number }) =>
+    new Promise((resolve) => {
+      setTimeout(() => {
+        resolve(config.id);
+      }, config.timeout);
+    }),
+);
 
 const getRandomInts = (n: number) => {
   const randInts = new Uint32Array(n);
