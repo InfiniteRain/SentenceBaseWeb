@@ -5,4 +5,5 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [mkcert(), elmPlugin(), tailwindcss()],
+  base: "https://infiniterain.github.io/sentence-base/",
 });

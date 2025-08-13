@@ -272,18 +272,10 @@ update msg model =
                     , OutMsg.some <| request.toMsg (Err err)
                     )
 
-        ( ResolvingForm _ [], ReceivedResponse result, _ ) ->
-            let
-                _ =
-                    Debug.log "received response with an empty form word queue" result
-            in
+        ( ResolvingForm _ [], ReceivedResponse _, _ ) ->
             ( { model | state = Ready }, Cmd.none, OutMsg.none )
 
-        ( _, ReceivedResponse result, [] ) ->
-            let
-                _ =
-                    Debug.log "received response with an empty queue" result
-            in
+        ( _, ReceivedResponse _, [] ) ->
             ( { model | state = Ready }, Cmd.none, OutMsg.none )
 
 

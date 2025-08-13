@@ -99,7 +99,7 @@ update msg model =
             )
 
         ReceivedPendingSentencesList (Err _) ->
-            Debug.todo "handle error"
+            ( model, Cmd.none, Action.none )
 
         Selected index ->
             ( { model
