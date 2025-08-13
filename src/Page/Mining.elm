@@ -507,73 +507,89 @@ definitionsView index (Definitions definitions) =
     div [ classes [ "card", "p-3", "mt-4", "gap-0" ] ]
         [ header [ classes [ "p-0", "flex", "justify-center" ] ]
             [ text ("Etimology " ++ String.fromInt (index + 1)) ]
-        , section [ class "pl-4 pr-0" ]
-            [ ul [ class "list-decimal" ] (List.map definitionView definitions) ]
+        , section [ class "pl-0 pr-0" ]
+            [ ul [ classes [ "list-decimal", "list-inside" ] ]
+                (let
+                    len =
+                        List.length definitions
+                 in
+                 List.indexedMap
+                    (\definitionIndex definition ->
+                        definitionView (definitionIndex == len - 1) definition
+                    )
+                    definitions
+                )
+            ]
         ]
 
 
-definitionView : Wiktionary.Definition -> Html Msg
-definitionView definition =
+definitionView : Bool -> Wiktionary.Definition -> Html Msg
+definitionView isLast definition =
     li [] <|
         List.concat
             [ Regex.split RegexExtra.newLines definition.text
-                |> List.map (\line -> div [] [ text (String.trim line) ])
-            , definition.formUsages |> List.map formUsagesView
+                |> List.map (text << String.trim)
+            , List.map (formUsagesView isLast) definition.formUsages
             ]
 
 
-formUsagesView : Wiktionary.FormUsages -> Html Msg
-formUsagesView { word, usages } =
+formUsagesView : Bool -> Wiktionary.FormUsages -> Html Msg
+formUsagesView isLastDefinition { word, usages } =
     let
         (Usages formUsages) =
             usages
+
+        containerClasses =
+            if isLastDefinition then
+                []
+
+            else
+                [ "mb-3" ]
     in
-    div [ classes [ "mb-4", "" ] ] <|
+    div [ classes containerClasses ] <|
         List.indexedMap
-            (\index (Definitions definitions) ->
-                div []
-                    [ div
-                        [ classes <|
-                            [ "gap-2"
-                            , "flex"
-                            , "flex-row"
-                            , "items-start"
-                            , "justify-between"
-                            , "rounded-lg"
-                            , "border"
-                            , "p-4"
-                            , "shadow-xs"
-                            , "mt-4"
-                            ]
+            (\definitionIndex (Definitions definitions) ->
+                div
+                    [ classes <|
+                        [ "gap-2"
+                        , "flex"
+                        , "flex-row"
+                        , "items-start"
+                        , "justify-between"
+                        , "rounded-lg"
+                        , "border"
+                        , "p-3"
+                        , "shadow-xs"
+                        , "mt-3"
                         ]
-                        [ div [ classes [ "flex", "flex-col", "gap-0.5" ] ]
-                            [ p [ class "leading-normal" ]
-                                [ text <|
-                                    "Etimology "
-                                        ++ String.fromInt (index + 1)
-                                        ++ " for "
-                                        ++ word
+                    ]
+                    [ div [ classes [ "flex", "flex-col", "gap-0.5" ] ]
+                        [ p [ class "leading-normal" ]
+                            [ text <|
+                                "Etimology "
+                                    ++ String.fromInt (definitionIndex + 1)
+                                    ++ " for "
+                                    ++ word
+                            ]
+                        , p
+                            [ classes
+                                [ "text-muted-foreground"
+                                , "text-sm"
+                                , "pl-4"
                                 ]
-                            , p
-                                [ classes
-                                    [ "text-muted-foreground"
-                                    , "text-sm"
-                                    , "pl-4"
-                                    ]
-                                ]
-                                [ ul [] <|
-                                    List.map
-                                        (\definition ->
-                                            li [ class "list-disc" ]
-                                                (Regex.split
-                                                    RegexExtra.newLines
-                                                    definition.text
-                                                    |> List.map
-                                                        (text << String.trim)
-                                                )
-                                        )
-                                        definitions
-                                ]
+                            ]
+                            [ ul [ class "list-disc" ] <|
+                                List.map
+                                    (\definition ->
+                                        li [ class "list-disc" ]
+                                            (Regex.split
+                                                RegexExtra.newLines
+                                                definition.text
+                                                |> List.map
+                                                    (text << String.trim)
+                                            )
+                                    )
+                                    definitions
                             ]
                         ]
                     ]
