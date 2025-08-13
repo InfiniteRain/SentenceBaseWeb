@@ -571,6 +571,7 @@ findElement elementName node =
 htmlToText : String -> String
 htmlToText html =
     html
+        |> Regex.replace RegexExtra.styleTag (\_ -> "")
         |> Regex.replace RegexExtra.tag (\_ -> "")
         |> String.trim
 
