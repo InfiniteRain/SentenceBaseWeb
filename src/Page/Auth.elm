@@ -48,7 +48,7 @@ update msg ({ session } as model) =
     case msg of
         InitializeUpdated Done ->
             ( { model | session = Session.authenticate session }
-            , Route.navigate (Session.navKey session) Route.Mining
+            , Route.navigate session Route.Mining
             , Action.none
             )
 

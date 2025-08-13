@@ -1,8 +1,8 @@
-module Route exposing (Route(..), fromUrl, navigate)
+module Route exposing (Route(..), fromUrl, navigate, standardizeFragment)
 
 import Browser.Navigation as Nav
+import Session exposing (Session)
 import Url exposing (Url)
-import Url.Parser as Parser exposing (Parser, s)
 
 
 
@@ -10,34 +10,61 @@ import Url.Parser as Parser exposing (Parser, s)
 
 
 type Route
-    = Auth
+    = Root
     | Mining
     | PendingSentences
     | Batches
-
-
-parser : Parser (Route -> a) a
-parser =
-    Parser.oneOf
-        [ Parser.map Auth Parser.top
-        , Parser.map Mining (s "mining")
-        , Parser.map PendingSentences (s "pendingSentences")
-        , Parser.map Batches (s "batches")
-        ]
 
 
 
 -- HELPERS
 
 
-navigate : Nav.Key -> Route -> Cmd msg
-navigate key route =
-    Nav.replaceUrl key <| routeToString route
+navigate : Session -> Route -> Cmd msg
+navigate session route =
+    let
+        url =
+            Session.currentUrl session
+
+        newUrl =
+            { url | fragment = Just <| routeToString route }
+    in
+    Nav.replaceUrl (Session.navKey session) (Url.toString newUrl)
 
 
 fromUrl : Url -> Maybe Route
 fromUrl url =
-    Parser.parse parser url
+    case extractFragmentSegments url of
+        [ "mining" ] ->
+            Just Mining
+
+        [ "batches" ] ->
+            Just Batches
+
+        [] ->
+            Just Root
+
+        _ ->
+            Nothing
+
+
+extractFragmentSegments : Url -> List String
+extractFragmentSegments url =
+    Maybe.withDefault "" url.fragment
+        |> String.split "/"
+        |> List.filter ((/=) "")
+
+
+standardizeFragment : Url -> Url
+standardizeFragment url =
+    { url
+        | fragment =
+            Just
+                (extractFragmentSegments url
+                    |> String.join "/"
+                    |> (++) "/"
+                )
+    }
 
 
 routeToString : Route -> String
@@ -48,7 +75,7 @@ routeToString route =
 routeToSegments : Route -> List String
 routeToSegments route =
     case route of
-        Auth ->
+        Root ->
             []
 
         Mining ->

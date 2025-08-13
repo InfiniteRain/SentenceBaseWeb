@@ -57,12 +57,13 @@ import Page.Batches as Batches
 import Page.Mining as Mining exposing (Msg(..))
 import Page.PendingSentences as PendingSentences
 import Random
-import Route exposing (Route(..))
+import Route exposing (Route(..), standardizeFragment)
 import Session exposing (Session)
 import Task
 import Triple
 import UUID as UuidLib
 import Url exposing (Url)
+import Url.Parser exposing (fragment)
 
 
 
@@ -217,7 +218,7 @@ updatePage pageMsg pageModel =
 routeToPage : Maybe Route -> Session -> ( PageModel, Cmd Msg, Action Msg )
 routeToPage maybeRoute session =
     case maybeRoute of
-        Just Route.Auth ->
+        Just Route.Root ->
             initAuth session
 
         Just Route.Mining ->
@@ -334,7 +335,7 @@ init seeds url navKey =
             initApi seeds
 
         session =
-            Session.create navKey
+            Session.create navKey url
 
         ( pageModel, pageCmd, pageAction ) =
             initPage session
@@ -355,8 +356,8 @@ init seeds url navKey =
               , apiCmd
               , pageCmd
               ]
-            , if Route.fromUrl url /= Just Route.Auth then
-                [ Route.navigate navKey Route.Auth
+            , if Route.fromUrl url /= Just Route.Root then
+                [ Route.navigate session Route.Root
                 ]
 
               else
@@ -407,7 +408,7 @@ update msg model =
     in
     case ( msg, model.page ) of
         ( UrlChanged url, _ ) ->
-            routeToPage (Route.fromUrl url) session
+            routeToPage (Route.fromUrl url) (Session.replaceUrl url session)
                 |> Triple.mapFirst (\page -> { model | page = page })
                 |> (\( newModel, cmd, action ) ->
                         action
@@ -427,7 +428,7 @@ update msg model =
                     ( model
                     , Nav.pushUrl
                         (Session.navKey session)
-                        (Url.toString url)
+                        (Url.toString <| standardizeFragment url)
                     )
 
                 Browser.External href ->
@@ -708,7 +709,7 @@ sideBarView model =
                     , ul []
                         [ li []
                             [ a
-                                ([ href "/mining"
+                                ([ href "#mining"
                                  , id "link-mining"
                                  , onClick (ClickedSideBarItem "link-mining")
                                  ]
@@ -720,7 +721,7 @@ sideBarView model =
                             ]
                         , li []
                             [ a
-                                ([ href "/batches"
+                                ([ href "#batches"
                                  , id "link-batches"
                                  , onClick (ClickedSideBarItem "link-batches")
                                  ]
