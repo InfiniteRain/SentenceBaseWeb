@@ -12,7 +12,6 @@ import Url exposing (Url)
 type Route
     = Root
     | Mining
-    | PendingSentences
     | Batches
 
 
@@ -80,9 +79,6 @@ routeToSegments route =
 
         Mining ->
             [ "mining" ]
-
-        PendingSentences ->
-            [ "pendingSentences" ]
 
         Batches ->
             [ "batches" ]

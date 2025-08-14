@@ -94,6 +94,10 @@ getBatchesRequest page =
             (.updatedSpreadsheet >> Model.fromGridData constructBatchIds)
         |> Task.map
             (\ids ->
+                -- let
+                --     _ =
+                --         Debug.log "ids" ids
+                -- in
                 ()
             )
 

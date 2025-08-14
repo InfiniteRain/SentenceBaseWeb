@@ -14,7 +14,6 @@ import Basecoat
         , ariaLabelledBy
         , classes
         , dataAlign
-        , dataCategory
         , dataSide
         , dataSideBarInitialized
         , dataTooltip
@@ -47,7 +46,6 @@ import Html
 import Html.Attributes
     exposing
         ( class
-        , classList
         , href
         , id
         , type_
@@ -63,7 +61,6 @@ import Icon.Warn exposing (warnIcon)
 import Page.Auth as Auth exposing (Msg(..))
 import Page.Batches as Batches
 import Page.Mining as Mining exposing (Msg(..))
-import Page.PendingSentences as PendingSentences
 import Port
 import Random
 import Route exposing (Route(..), standardizeFragment)
@@ -74,7 +71,6 @@ import Toast
 import Triple
 import UUID as UuidLib
 import Url exposing (Url)
-import Url.Parser exposing (fragment)
 
 
 
@@ -176,14 +172,12 @@ apiSubscriptions apiModel =
 type PageMsg
     = GotAuthMsg Auth.Msg
     | GotMiningMsg Mining.Msg
-    | GotPendingSentencesMsg PendingSentences.Msg
     | GotBatchesMsg Batches.Msg
 
 
 type PageModel
     = Auth Auth.Model
     | Mining Mining.Model
-    | PendingSentences PendingSentences.Model
     | Batches Batches.Model
 
 
@@ -205,14 +199,6 @@ updatePage pageMsg pageModel =
                 Mining.update
                 GotMiningMsg
                 Mining
-
-        ( GotPendingSentencesMsg subMsg, PendingSentences subModel ) ->
-            updateWithPage
-                subMsg
-                subModel
-                PendingSentences.update
-                GotPendingSentencesMsg
-                PendingSentences
 
         ( GotBatchesMsg subMsg, Batches subModel ) ->
             updateWithPage
@@ -239,13 +225,6 @@ routeToPage maybeRoute session =
                 GotMiningMsg
                 Mining
 
-        Just Route.PendingSentences ->
-            initPageWith
-                session
-                PendingSentences.init
-                GotPendingSentencesMsg
-                PendingSentences
-
         Just Route.Batches ->
             initPageWith
                 session
@@ -264,9 +243,6 @@ pageToSession page =
             session
 
         Mining { session } ->
-            session
-
-        PendingSentences { session } ->
             session
 
         Batches { session } ->
@@ -296,12 +272,6 @@ pageSubscriptions pageModel =
         Mining subModel ->
             subscribePage GotMiningMsg Mining.subscriptions subModel
 
-        PendingSentences subModel ->
-            subscribePage
-                GotPendingSentencesMsg
-                PendingSentences.subscriptions
-                subModel
-
         Batches subModel ->
             subscribePage
                 GotBatchesMsg
@@ -317,12 +287,6 @@ pageView pageModel =
 
         Mining subModel ->
             viewWithPage GotMiningMsg Mining.view subModel
-
-        PendingSentences subModel ->
-            viewWithPage
-                GotPendingSentencesMsg
-                PendingSentences.view
-                subModel
 
         Batches subModel ->
             viewWithPage GotBatchesMsg Batches.view subModel
@@ -744,9 +708,6 @@ sideBarView model =
 
                 Mining _ ->
                     ( [ ariaCurrent "page" ], [] )
-
-                PendingSentences _ ->
-                    ( [], [] )
 
                 Batches _ ->
                     ( [], [ ariaCurrent "page" ] )

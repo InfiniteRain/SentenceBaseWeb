@@ -8,10 +8,15 @@ import Api.Google.Exchange.Sheets as Sheets
         , RequestExtendedValue(..)
         )
 import Api.Google.Exchange.Task as Task
-import Api.Google.ListConstructor exposing (cellStringValue, constructFromList, extract, field)
+import Api.Google.ListConstructor
+    exposing
+        ( cellStringValue
+        , constructFromList
+        , extract
+        , field
+        )
 import Api.Google.Model as Model
 import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
-import Array exposing (Array)
 import Basecoat
     exposing
         ( ariaControls
@@ -42,7 +47,7 @@ import Html
         )
 import Html.Attributes
     exposing
-        ( attribute
+        ( checked
         , class
         , disabled
         , hidden
@@ -50,8 +55,9 @@ import Html.Attributes
         , style
         , type_
         )
-import Html.Events exposing (onClick, stopPropagationOn)
+import Html.Events exposing (onCheck, stopPropagationOn)
 import Http
+import Icon.Info exposing (infoIcon)
 import Icon.Loading exposing (loadingIcon)
 import Icon.Warn exposing (warnIcon)
 import Iso8601
@@ -60,6 +66,7 @@ import Port
 import Regex
 import RegexExtra
 import Session exposing (Session)
+import Set exposing (Set)
 import Task as PlatformTask
 import TaskPort
 import Time
@@ -80,6 +87,8 @@ type alias Model =
     , definitionState : DefinitionState
     , addSentenceState : AddSentenceState
     , getSentencesState : GetSentencesState
+    , selectedSentences : Set Int
+    , confirmBatchState : ConfirmBatchState
     }
 
 
@@ -101,9 +110,14 @@ type AddSentenceState
 
 
 type GetSentencesState
-    = GetSentencesLoading
-    | GetSentencesError
-    | GetSentencesFetched
+    = GetSentencesStale
+    | GetSentencesLoading
+    | GetSentencesFetched (Result Task.Error (List Model.PendingSentence))
+
+
+type ConfirmBatchState
+    = ConfirmBatchIdle
+    | ConfirmBatchLoading
 
 
 init : Session -> ( Model, Cmd Msg, Effect Msg )
@@ -116,7 +130,9 @@ init session =
       , selectedWord = Nothing
       , definitionState = DefinitionWordNotSelected
       , addSentenceState = AddSentenceIdle
-      , getSentencesState = GetSentencesLoading
+      , getSentencesState = GetSentencesStale
+      , selectedSentences = Set.empty
+      , confirmBatchState = ConfirmBatchIdle
       }
     , Cmd.none
     , Effect.none
@@ -136,17 +152,37 @@ type Msg
     | MineClicked
     | GotAddPendingSentenceResponse (Result Task.Error ())
     | OnTagsInputChanged String
-    | Noop
+    | GotSentencesResponse (Result Task.Error (List Model.PendingSentence))
+    | SentenceChecked Int
+    | ConfirmBatchClicked
+    | UuidReceived String
+    | GotConfirmBatchResponse (Result Task.Error ())
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Effect Msg )
 update msg model =
     case msg of
-        TabClicked tab ->
-            ( { model | tab = tab }
-            , Cmd.none
-            , Effect.none
-            )
+        TabClicked MiningTab ->
+            ( { model | tab = MiningTab }, Cmd.none, Effect.none )
+
+        TabClicked PendingSentencesTab ->
+            case model.getSentencesState of
+                GetSentencesStale ->
+                    ( { model
+                        | tab = PendingSentencesTab
+                        , getSentencesState = GetSentencesLoading
+                      }
+                    , Cmd.none
+                    , getPendingSentencesRequest
+                        |> Task.sheetsAttempt GotSentencesResponse
+                        |> Effect.google
+                    )
+
+                _ ->
+                    ( { model | tab = PendingSentencesTab }
+                    , Cmd.none
+                    , Effect.none
+                    )
 
         ClipboardUpdated (Ok str) ->
             let
@@ -210,6 +246,7 @@ update msg model =
                 , selectedWord = Nothing
                 , definitionState = DefinitionWordNotSelected
                 , addSentenceState = AddSentenceLoading
+                , getSentencesState = GetSentencesStale
               }
             , Cmd.none
             , addPendingSentenceRequest
@@ -247,8 +284,86 @@ update msg model =
             , Effect.none
             )
 
-        Noop ->
-            ( model, Cmd.none, Effect.none )
+        GotSentencesResponse response ->
+            case model.getSentencesState of
+                GetSentencesLoading ->
+                    ( { model
+                        | getSentencesState = GetSentencesFetched response
+                        , selectedSentences = Set.empty
+                      }
+                    , Cmd.none
+                    , Effect.none
+                    )
+
+                -- if received when stale -> should ignore
+                -- if received when fetched -> impossible state
+                _ ->
+                    ( model, Cmd.none, Effect.none )
+
+        SentenceChecked index ->
+            let
+                setOperation =
+                    if Set.member index model.selectedSentences then
+                        Set.remove
+
+                    else
+                        Set.insert
+            in
+            ( { model
+                | selectedSentences = setOperation index model.selectedSentences
+              }
+            , Cmd.none
+            , Effect.none
+            )
+
+        ConfirmBatchClicked ->
+            ( { model | confirmBatchState = ConfirmBatchLoading }
+            , Cmd.none
+            , Effect.uuid UuidReceived
+            )
+
+        UuidReceived uuid ->
+            case model.getSentencesState of
+                GetSentencesFetched (Ok sentences) ->
+                    ( model
+                    , Cmd.none
+                    , confirmBatchRequest
+                        { pendingSentences = sentences
+                        , selectedSentences = model.selectedSentences
+                        , batchId = uuid
+                        }
+                        |> Task.sheetsAttempt GotConfirmBatchResponse
+                        |> Effect.google
+                    )
+
+                -- non-ok status should be impossible at this point
+                _ ->
+                    ( { model | confirmBatchState = ConfirmBatchIdle }
+                    , Cmd.none
+                    , Effect.none
+                    )
+
+        GotConfirmBatchResponse (Ok ()) ->
+            ( { model
+                | confirmBatchState = ConfirmBatchIdle
+                , getSentencesState = GetSentencesLoading
+                , selectedSentences = Set.empty
+              }
+            , Cmd.none
+            , getPendingSentencesRequest
+                |> Task.sheetsAttempt GotSentencesResponse
+                |> Effect.google
+            )
+
+        GotConfirmBatchResponse (Err err) ->
+            ( { model | confirmBatchState = ConfirmBatchIdle }
+            , Cmd.none
+            , Effect.toast
+                { category = Toast.Error
+                , title = "Failed to confirm batch"
+                , description = Task.errorToMessage err
+                }
+            )
 
 
 type alias PendingSentence =
@@ -327,7 +442,7 @@ addPendingSentenceRequest { word, sentence, tags } =
             )
 
 
-getPendingSentencesRequest : Task.SheetsTask (Array Model.PendingSentence)
+getPendingSentencesRequest : Task.SheetsTask (List Model.PendingSentence)
 getPendingSentencesRequest =
     Sheets.getSubSheetDataRequest
         [ { sheetId = Constants.subSheetId PendingSentences
@@ -338,7 +453,6 @@ getPendingSentencesRequest =
           }
         ]
         |> Task.map (Model.fromGridData maybeConstructPendingSentence)
-        |> Task.map Array.fromList
 
 
 maybeConstructPendingSentence :
@@ -361,6 +475,110 @@ maybeConstructPendingSentence =
         >> extract
 
 
+confirmBatchRequest :
+    { pendingSentences : List Model.PendingSentence
+    , selectedSentences : Set Int
+    , batchId : String
+    }
+    -> Task.SheetsTask ()
+confirmBatchRequest { pendingSentences, selectedSentences, batchId } =
+    let
+        tagged =
+            pendingSentences
+                |> List.indexedMap (\index sentence -> ( index, sentence ))
+
+        selectedPendingSentences =
+            tagged
+                |> List.filter
+                    (\( index, _ ) -> Set.member index selectedSentences)
+
+        deselectedPendingSentences =
+            tagged
+                |> List.filter
+                    (\( index, _ ) -> not <| Set.member index selectedSentences)
+    in
+    Task.platform Time.now
+        |> Task.andThen
+            (\time ->
+                Sheets.batchUpdateRequest
+                    [ RequestAppendCells
+                        { sheetId = Constants.subSheetId MinedSentences
+                        , rows =
+                            selectedPendingSentences
+                                |> List.map
+                                    (\( _, { word, sentence, tags } ) ->
+                                        [ RequestString word
+                                        , RequestString sentence
+                                        , Sheets.tagsExtendedValue tags
+                                        , RequestString batchId
+                                        , Sheets.iso8601ExtendedValue time
+                                        ]
+                                    )
+                                |> Sheets.requestRows
+                        , fields = "userEnteredValue"
+                        }
+                    , RequestAppendCells
+                        { sheetId = Constants.subSheetId MinedWords
+                        , rows =
+                            selectedPendingSentences
+                                |> List.map
+                                    (\( _, { word } ) ->
+                                        [ RequestString word
+                                        , Sheets.iso8601ExtendedValue time
+                                        ]
+                                    )
+                                |> Sheets.requestRows
+                        , fields = "userEnteredValue"
+                        }
+                    , RequestAppendCells
+                        { sheetId = Constants.subSheetId BacklogSentences
+                        , rows =
+                            deselectedPendingSentences
+                                |> List.map
+                                    (\( _, { word, sentence, tags } ) ->
+                                        [ RequestString word
+                                        , RequestString sentence
+                                        , Sheets.tagsExtendedValue tags
+                                        , Sheets.iso8601ExtendedValue time
+                                        ]
+                                    )
+                                |> Sheets.requestRows
+                        , fields = "userEnteredValue"
+                        }
+                    , RequestDeleteRange
+                        { range =
+                            { sheetId = Constants.subSheetId PendingSentences
+                            , startRowIndex = Just 1
+                            , endRowIndex = Nothing
+                            , startColumnIndex = Just 0
+                            , endColumnIndex = Just 4
+                            }
+                        , dimension = RequestRows
+                        }
+                    ]
+            )
+
+
+isBatchSelectionReady : Model -> Bool
+isBatchSelectionReady model =
+    case model.getSentencesState of
+        GetSentencesFetched (Ok sentences) ->
+            let
+                selectedSize =
+                    Set.size model.selectedSentences
+            in
+            selectedSize
+                /= 0
+                && (selectedSize
+                        == List.length sentences
+                        || selectedSize
+                        == numSentencesToConfirmBatch
+                   )
+
+        _ ->
+            False
+
+
 
 -- SUBSCRIPTIONS
 
@@ -379,15 +597,23 @@ view model =
     { title = "Mining"
     , content =
         div
-            [ classes
-                [ "flex"
-                , "shrink-0"
-                , "grow-0"
-                , "justify-center"
-                , "h-full"
+            (List.concat
+                [ [ classes
+                        [ "flex"
+                        , "shrink-0"
+                        , "grow-0"
+                        , "justify-center"
+                        , "h-full"
+                        ]
+                  ]
+                , case model.tab of
+                    MiningTab ->
+                        [ onClick BodyClicked ]
+
+                    _ ->
+                        []
                 ]
-            , onClick BodyClicked
-            ]
+            )
             [ div [ classes [ "tabs", "basis-md" ] ]
                 [ nav
                     [ ariaOrientation "horizontal"
@@ -438,13 +664,18 @@ view model =
     }
 
 
+onClick : msg -> Attribute msg
+onClick msg =
+    stopPropagationOn "click" <| Decode.succeed ( msg, True )
 
--- MINING TAB
+
+
+-- MINING TAB VIEW
 
 
 miningTabView : Model -> Html Msg
 miningTabView model =
-    div [ classes [ "flex flex-col h-full mt-2" ] ]
+    div [ classes [ "flex", "flex-col", "h-full", "mt-2" ] ]
         [ if List.length model.sentenceWords > 0 then
             div
                 [ classes
@@ -600,45 +831,33 @@ definitionsView index (Definitions definitions) =
         [ header [ classes [ "p-0", "flex", "justify-center" ] ]
             [ text ("Etimology " ++ String.fromInt (index + 1)) ]
         , section [ class "pl-0 pr-0" ]
-            [ ul [ classes [ "list-decimal", "list-inside" ] ]
-                (let
-                    len =
-                        List.length definitions
-                 in
-                 List.indexedMap
-                    (\definitionIndex definition ->
-                        definitionView (definitionIndex == len - 1) definition
+            [ ul [ classes [ "list-decimal", "list-inside" ] ] <|
+                List.map
+                    (\definition ->
+                        definitionView definition
                     )
                     definitions
-                )
             ]
         ]
 
 
-definitionView : Bool -> Wiktionary.Definition -> Html Msg
-definitionView isLast definition =
-    li [] <|
+definitionView : Wiktionary.Definition -> Html Msg
+definitionView definition =
+    li [ class "[&:not(:last-child):has(.form-usages)]:mb-3" ] <|
         List.concat
             [ Regex.split RegexExtra.newLines definition.text
                 |> List.map (text << String.trim)
-            , List.map (formUsagesView isLast) definition.formUsages
+            , List.map formUsagesView definition.formUsages
             ]
 
 
-formUsagesView : Bool -> Wiktionary.FormUsages -> Html Msg
-formUsagesView isLastDefinition { word, usages } =
+formUsagesView : Wiktionary.FormUsages -> Html Msg
+formUsagesView { word, usages } =
     let
         (Usages formUsages) =
             usages
-
-        containerClasses =
-            if isLastDefinition then
-                []
-
-            else
-                [ "mb-3" ]
     in
-    div [ classes containerClasses ] <|
+    div [] <|
         List.indexedMap
             (\definitionIndex (Definitions definitions) ->
                 div
@@ -653,6 +872,7 @@ formUsagesView isLastDefinition { word, usages } =
                         , "p-3"
                         , "shadow-xs"
                         , "mt-3"
+                        , "form-usages"
                         ]
                     ]
                     [ div [ classes [ "flex", "flex-col", "gap-0.5" ] ]
@@ -690,27 +910,163 @@ formUsagesView isLastDefinition { word, usages } =
 
 
 
--- PENDING SENTENCES TAB
+-- PENDING SENTENCES TAB VIEW
 
 
 pendingSentencesTabView : Model -> Html Msg
 pendingSentencesTabView model =
-    label [ class "flex items-start gap-3 border p-3 hover:bg-accent/50 rounded-lg has-[input[type='checkbox']:checked]:border-blue-600 has-[input[type='checkbox']:checked]:bg-blue-50 dark:has-[input[type='checkbox']:checked]:border-blue-900 dark:has-[input[type='checkbox']:checked]:bg-blue-950" ]
-        [ input
-            [ attribute "checked" ""
-            , class "input checked:bg-blue-600 checked:border-blue-600 dark:checked:bg-blue-700 dark:checked:border-blue-700 checked:after:bg-white"
-            , type_ "checkbox"
+    div [ classes [ "flex flex-col h-full mt-2" ] ]
+        [ div [ classes [ "grow-1", "shrink-0", "overflow-auto", "basis-0" ] ]
+            [ case model.getSentencesState of
+                GetSentencesStale ->
+                    div [] []
+
+                GetSentencesLoading ->
+                    div []
+                        [ pendingSentenceSkeletonView "w-[7%]" "w-[85%]"
+                        , pendingSentenceSkeletonView "w-[10%]" "w-[70%]"
+                        , pendingSentenceSkeletonView "w-[5%]" "w-[95%]"
+                        ]
+
+                GetSentencesFetched (Ok []) ->
+                    div [ classes [ "alert" ] ]
+                        [ infoIcon []
+                        , h2 [] [ text "No sentences have yet been mined." ]
+                        ]
+
+                GetSentencesFetched (Ok sentences) ->
+                    div []
+                        (List.indexedMap (pendingSentenceView model) sentences)
+
+                GetSentencesFetched (Err err) ->
+                    div [ classes [ "alert-destructive" ] ]
+                        [ warnIcon []
+                        , h2 [] [ text "Unable to fetch pending sentences." ]
+                        , section [] [ text <| Task.errorToMessage err ]
+                        ]
             ]
-            []
-        , div [ class "grid gap-2" ]
-            [ h2 [ class "text-sm leading-none font-medium" ]
-                [ text "Enable notifications" ]
-            , p [ class "text-muted-foreground text-sm" ]
-                [ text "You can enable or disable notifications at any time." ]
+        , div [ classes [ "grow-0", "shrink-1", "mt-4" ] ]
+            [ button
+                [ classes [ "btn-primary", "w-full", "mb-4" ]
+                , disabled
+                    (model.getSentencesState
+                        == GetSentencesLoading
+                        || not (isBatchSelectionReady model)
+                        || model.confirmBatchState
+                        == ConfirmBatchLoading
+                    )
+                , onClick ConfirmBatchClicked
+                ]
+                (List.concat
+                    [ if model.confirmBatchState == ConfirmBatchLoading then
+                        [ loadingIcon [] ]
+
+                      else
+                        []
+                    , [ text "Confirm Batch" ]
+                    ]
+                )
             ]
         ]
 
 
-onClick : msg -> Attribute msg
-onClick msg =
-    stopPropagationOn "click" <| Decode.succeed ( msg, True )
+pendingSentenceSkeletonView : String -> String -> Html Msg
+pendingSentenceSkeletonView wordSize sentenceSize =
+    div
+        [ classes
+            [ "flex"
+            , "flex-col"
+            , "items-start"
+            , "gap-3"
+            , "border"
+            , "p-3"
+            , "[&:not(:first-child)]:mt-4"
+            ]
+        ]
+        [ div
+            [ classes
+                [ "bg-accent"
+                , "animate-pulse"
+                , "rounded-md"
+                , "h-4"
+                , wordSize
+                ]
+            ]
+            []
+        , div
+            [ classes
+                [ "bg-accent"
+                , "animate-pulse"
+                , "rounded-md"
+                , "h-4"
+                , sentenceSize
+                ]
+            ]
+            []
+        ]
+
+
+pendingSentenceView : Model -> Int -> Model.PendingSentence -> Html Msg
+pendingSentenceView model index sentence =
+    label
+        [ classes
+            [ "flex"
+            , "items-start"
+            , "gap-3"
+            , "border"
+            , "p-3"
+            , "hover:bg-accent/50"
+            , "rounded-lg"
+            , "has-[input[type='checkbox']:checked]:border-blue-600"
+            , "has-[input[type='checkbox']:checked]:bg-blue-50"
+            , "dark:has-[input[type='checkbox']:checked]:border-blue-900"
+            , "dark:has-[input[type='checkbox']:checked]:bg-blue-950"
+            , "has-[input[type='checkbox']:disabled]:opacity-50"
+            , "[&:not(:first-child)]:mt-4"
+            ]
+        ]
+        [ input
+            (let
+                isChecked =
+                    Set.member index model.selectedSentences
+             in
+             [ classes
+                [ "input checked:bg-blue-600"
+                , "checked:border-blue-600"
+                , "dark:checked:bg-blue-700"
+                , "dark:checked:border-blue-700"
+                , "checked:after:bg-white"
+                ]
+             , type_ "checkbox"
+             , checked isChecked
+             , onCheck (\_ -> SentenceChecked index)
+             , disabled (not isChecked && isBatchSelectionReady model)
+             ]
+            )
+            []
+        , div [ class "grid gap-2" ] <|
+            List.concat
+                [ [ h2 [ classes [ "text-sm", "leading-none", "font-medium" ] ]
+                        [ text sentence.word ]
+                  , p [ classes [ "text-sm" ] ]
+                        [ text sentence.sentence ]
+                  ]
+                , case sentence.tags of
+                    [] ->
+                        []
+
+                    rest ->
+                        [ p [ classes [ "text-muted-foreground" ] ]
+                            [ text <| String.join ", " rest ]
+                        ]
+                ]
+        ]
+
+
+
+-- CONSTANTS
+
+
+numSentencesToConfirmBatch : Int
+numSentencesToConfirmBatch =
+    10

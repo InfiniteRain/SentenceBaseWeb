@@ -246,24 +246,24 @@ errorToMessage error =
         HttpError httpError ->
             case httpError of
                 BadUrl url ->
-                    "Bad url: " ++ url
+                    "Bad url: '" ++ url ++ "'."
 
                 Timeout ->
-                    "Request timed out"
+                    "Request timed out."
 
                 NetworkError ->
-                    "Encountered a network error"
+                    "Encountered a network error."
 
                 BadStatus status ->
-                    "Bad response status code: " ++ String.fromInt status
+                    "Bad response status code: " ++ String.fromInt status ++ "."
 
                 BadBody _ ->
-                    "Received invalid body"
+                    "Received invalid body."
 
         TokenAcquisitionError taError ->
             case taError of
                 InteropError _ ->
-                    "Interop error"
+                    "Interop error."
 
                 JSError (TaskPort.ErrorObject name _) ->
                     "Error thrown: " ++ name
@@ -272,4 +272,4 @@ errorToMessage error =
                     "Error thrown: " ++ encode 4 value
 
         PlatformTaskError ->
-            "Platform task error"
+            "Platform task error."
