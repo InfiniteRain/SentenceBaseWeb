@@ -7,7 +7,6 @@ module Page.PendingSentences exposing
     , view
     )
 
-import Api.Action as Action exposing (Action)
 import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Exchange.Sheets as Sheets
     exposing
@@ -25,6 +24,7 @@ import Api.Google.ListConstructor
         )
 import Api.Google.Model as Model
 import Array exposing (Array)
+import Effect exposing (Effect)
 import Html exposing (Html, button, div, hr, li, span, text, ul)
 import Html.Attributes exposing (disabled)
 import Html.Events exposing (onClick)
@@ -52,7 +52,7 @@ type ConfirmBatchRequesState
     | Loading
 
 
-init : Session -> ( Model, Cmd Msg, Action Msg )
+init : Session -> ( Model, Cmd Msg, Effect Msg )
 init session =
     ( { session = session
       , pendingSentences = Array.empty
@@ -62,7 +62,7 @@ init session =
       }
     , Cmd.none
     , Task.sheetsAttempt ReceivedPendingSentencesList getPendingSentencesRequest
-        |> Action.google
+        |> Effect.google
     )
 
 
@@ -83,7 +83,7 @@ type Msg
     | BatchConfirmed (Result Task.Error ())
 
 
-update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
+update : Msg -> Model -> ( Model, Cmd Msg, Effect Msg )
 update msg model =
     case msg of
         ReceivedPendingSentencesList (Ok pendingSentences) ->
@@ -95,11 +95,11 @@ update msg model =
                         |> Array.indexedMap (\index _ -> index)
               }
             , Cmd.none
-            , Action.none
+            , Effect.none
             )
 
         ReceivedPendingSentencesList (Err _) ->
-            ( model, Cmd.none, Action.none )
+            ( model, Cmd.none, Effect.none )
 
         Selected index ->
             ( { model
@@ -111,7 +111,7 @@ update msg model =
                         model.deselectedSentences
               }
             , Cmd.none
-            , Action.none
+            , Effect.none
             )
 
         Deselected index ->
@@ -124,13 +124,13 @@ update msg model =
                     Array.push index model.deselectedSentences
               }
             , Cmd.none
-            , Action.none
+            , Effect.none
             )
 
         ConfirmBatchClicked ->
             ( { model | confirmBatchRequesState = Loading }
             , Cmd.none
-            , Action.uuid UuidReceived
+            , Effect.uuid UuidReceived
             )
 
         UuidReceived uuid ->
@@ -143,7 +143,7 @@ update msg model =
                 , batchId = uuid
                 }
                 |> Task.sheetsAttempt BatchConfirmed
-                |> Action.google
+                |> Effect.google
             )
 
         BatchConfirmed (Ok _) ->
@@ -154,7 +154,7 @@ update msg model =
                 , deselectedSentences = Array.empty
               }
             , Cmd.none
-            , Action.none
+            , Effect.none
             )
 
         BatchConfirmed (Err _) ->
@@ -162,7 +162,7 @@ update msg model =
                 | confirmBatchRequesState = Idle
               }
             , Cmd.none
-            , Action.none
+            , Effect.none
             )
 
 

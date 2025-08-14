@@ -1,5 +1,6 @@
 module Basecoat exposing
-    ( ariaControls
+    ( ariaAtomic
+    , ariaControls
     , ariaCurrent
     , ariaHidden
     , ariaLabel
@@ -9,6 +10,7 @@ module Basecoat exposing
     , ariaSelected
     , classes
     , dataAlign
+    , dataCategory
     , dataSide
     , dataSideBarInitialized
     , dataTooltip
@@ -65,6 +67,11 @@ ariaSelected value =
     attribute "aria-selected" (boolToString value)
 
 
+ariaAtomic : Bool -> Attribute msg
+ariaAtomic value =
+    attribute "aria-atomic" (boolToString value)
+
+
 dataAlign : String -> Attribute msg
 dataAlign value =
     attribute "data-align" value
@@ -83,6 +90,11 @@ dataTooltip value =
 dataSideBarInitialized : Bool -> Attribute msg
 dataSideBarInitialized value =
     attribute "data-sidebar-initialized" (boolToString value)
+
+
+dataCategory : String -> Attribute msg
+dataCategory value =
+    attribute "data-category" value
 
 
 role : String -> Attribute msg

@@ -1,18 +1,20 @@
 module Main exposing (..)
 
-import Api.Action as Action exposing (Action)
 import Api.Google as Google exposing (Msg(..))
 import Api.Google.Constants exposing (SubSheet(..))
+import Api.OutMsg as OutMsg exposing (OutMsg)
 import Api.Uuid as Uuid
 import Api.Wiktionary as Wiktionary exposing (Msg(..))
 import Basecoat
     exposing
-        ( ariaCurrent
+        ( ariaAtomic
+        , ariaCurrent
         , ariaHidden
         , ariaLabel
         , ariaLabelledBy
         , classes
         , dataAlign
+        , dataCategory
         , dataSide
         , dataSideBarInitialized
         , dataTooltip
@@ -22,6 +24,7 @@ import Basecoat
 import Browser
 import Browser.Dom as Dom exposing (Viewport)
 import Browser.Navigation as Nav
+import Effect exposing (Effect)
 import Html
     exposing
         ( Html
@@ -29,11 +32,13 @@ import Html
         , aside
         , button
         , div
+        , h2
         , h3
         , header
         , li
         , main_
         , nav
+        , p
         , section
         , span
         , text
@@ -48,18 +53,24 @@ import Html.Attributes
         , type_
         )
 import Html.Events exposing (onClick)
+import Icon.Error exposing (errorIcon)
 import Icon.GitHub exposing (gitHubIcon)
+import Icon.Info exposing (infoIcon)
 import Icon.Menu exposing (menuIcon)
 import Icon.Pickaxe exposing (pickaxeIcon)
-import OutMsg exposing (OutMsg)
+import Icon.Success exposing (successIcon)
+import Icon.Warn exposing (warnIcon)
 import Page.Auth as Auth exposing (Msg(..))
 import Page.Batches as Batches
 import Page.Mining as Mining exposing (Msg(..))
 import Page.PendingSentences as PendingSentences
+import Port
 import Random
 import Route exposing (Route(..), standardizeFragment)
 import Session exposing (Session)
 import Task
+import TaskPort
+import Toast
 import Triple
 import UUID as UuidLib
 import Url exposing (Url)
@@ -215,7 +226,7 @@ updatePage pageMsg pageModel =
             \model -> ( model, Cmd.none )
 
 
-routeToPage : Maybe Route -> Session -> ( PageModel, Cmd Msg, Action Msg )
+routeToPage : Maybe Route -> Session -> ( PageModel, Cmd Msg, Effect Msg )
 routeToPage maybeRoute session =
     case maybeRoute of
         Just Route.Root ->
@@ -262,7 +273,7 @@ pageToSession page =
             session
 
 
-initAuth : Session -> ( PageModel, Cmd Msg, Action Msg )
+initAuth : Session -> ( PageModel, Cmd Msg, Effect Msg )
 initAuth session =
     initPageWith
         session
@@ -271,7 +282,7 @@ initAuth session =
         Auth
 
 
-initPage : Session -> ( PageModel, Cmd Msg, Action Msg )
+initPage : Session -> ( PageModel, Cmd Msg, Effect Msg )
 initPage session =
     initAuth session
 
@@ -325,6 +336,15 @@ type alias Model =
     { api : ApiModel
     , page : PageModel
     , sideBarToggled : Bool
+    , nextToastId : Int
+    , toasts : List Toast
+    }
+
+
+type alias Toast =
+    { id : Int
+    , config : Toast.Config
+    , hidden : Bool
     }
 
 
@@ -337,17 +357,19 @@ init seeds url navKey =
         session =
             Session.create navKey url
 
-        ( pageModel, pageCmd, pageAction ) =
+        ( pageModel, pageCmd, pageEffect ) =
             initPage session
 
         model =
             { api = apiModel
             , page = pageModel
             , sideBarToggled = False
+            , nextToastId = 0
+            , toasts = []
             }
 
         ( initialModel, initialPageCmd ) =
-            performApiAction model pageAction
+            performEffect model pageEffect
     in
     ( initialModel
     , Cmd.batch <|
@@ -373,16 +395,16 @@ initApiCmd toApiMsg cmd =
 
 initPageWith :
     Session
-    -> (Session -> ( model, Cmd msg, Action msg ))
+    -> (Session -> ( model, Cmd msg, Effect msg ))
     -> (msg -> PageMsg)
     -> (model -> PageModel)
-    -> ( PageModel, Cmd Msg, Action Msg )
+    -> ( PageModel, Cmd Msg, Effect Msg )
 initPageWith session initFn toMsg toModel =
     initFn session
         |> Triple.mapAll
             toModel
             (Cmd.map (GotPageMsg << toMsg))
-            (Action.map (GotPageMsg << toMsg))
+            (Effect.map (GotPageMsg << toMsg))
 
 
 
@@ -398,6 +420,7 @@ type Msg
     | BlurredSideBarItem
     | ClickedSideBarItem String
     | GotViewPort String Viewport
+    | Timeout (TaskPort.Result Int)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -410,13 +433,13 @@ update msg model =
         ( UrlChanged url, _ ) ->
             routeToPage (Route.fromUrl url) (Session.replaceUrl url session)
                 |> Triple.mapFirst (\page -> { model | page = page })
-                |> (\( newModel, cmd, action ) ->
-                        action
-                            |> performApiAction newModel
+                |> (\( newModel, cmd, effect ) ->
+                        effect
+                            |> performEffect newModel
                             |> Tuple.mapSecond
-                                (\googleActionCmd ->
+                                (\googleEffectCmd ->
                                     Cmd.batch
-                                        [ googleActionCmd
+                                        [ googleEffectCmd
                                         , cmd
                                         ]
                                 )
@@ -467,6 +490,27 @@ update msg model =
             else
                 ( model, Cmd.none )
 
+        ( Timeout (Ok id), _ ) ->
+            ( { model
+                | toasts =
+                    model.toasts
+                        |> List.filter
+                            (\toast -> toast.id /= id || not toast.hidden)
+                        |> List.map
+                            (\toast ->
+                                if toast.id == id then
+                                    { toast | hidden = True }
+
+                                else
+                                    toast
+                            )
+              }
+            , Cmd.none
+            )
+
+        ( Timeout (Err _), _ ) ->
+            ( model, Cmd.none )
+
 
 resolveOutMsgUpdates : Model -> Cmd Msg -> List Msg -> ( Model, Cmd Msg )
 resolveOutMsgUpdates model cmd msgs =
@@ -482,16 +526,16 @@ resolveOutMsgUpdates model cmd msgs =
             ( model, cmd )
 
 
-performApiAction : Model -> Action Msg -> ( Model, Cmd Msg )
-performApiAction model action =
-    Action.match action
+performEffect : Model -> Effect Msg -> ( Model, Cmd Msg )
+performEffect model effect =
+    Effect.match effect
         { onNone = ( model, Cmd.none )
         , onGoogle =
-            \googleAction ->
+            \googleEffect ->
                 update
                     (GotApiMsg <|
                         GotGoogleMsg <|
-                            Google.SentAction googleAction
+                            Google.SentAction googleEffect
                     )
                     model
         , onWiktionary =
@@ -507,6 +551,33 @@ performApiAction model action =
                 update
                     (GotApiMsg <| GotUuidMsg <| Uuid.SentRequest toMsg)
                     model
+        , onToast =
+            \config ->
+                let
+                    time =
+                        if config.category == Toast.Error then
+                            5000
+
+                        else
+                            3000
+                in
+                ( { model
+                    | nextToastId = model.nextToastId + 1
+                    , toasts =
+                        model.toasts
+                            ++ [ { id = model.nextToastId
+                                 , config = config
+                                 , hidden = False
+                                 }
+                               ]
+                  }
+                , Cmd.batch
+                    [ Port.timeout model.nextToastId time
+                        |> Task.attempt Timeout
+                    , Port.timeout model.nextToastId (time + 500)
+                        |> Task.attempt Timeout
+                    ]
+                )
         }
 
 
@@ -542,7 +613,7 @@ updateWithApi subMsg subModel updateFn toMsg toModel model =
 updateWithPage :
     msg
     -> model
-    -> (msg -> model -> ( model, Cmd msg, Action msg ))
+    -> (msg -> model -> ( model, Cmd msg, Effect msg ))
     -> (msg -> PageMsg)
     -> (model -> PageModel)
     -> Update
@@ -552,13 +623,13 @@ updateWithPage subMsg subModel updateFn toMsg toModel model =
             (\updatedSubModel ->
                 { model | page = toModel updatedSubModel }
             )
-        |> (\( newModel, cmd, action ) ->
-                Action.map (GotPageMsg << toMsg) action
-                    |> performApiAction newModel
+        |> (\( newModel, cmd, effect ) ->
+                Effect.map (GotPageMsg << toMsg) effect
+                    |> performEffect newModel
                     |> Tuple.mapSecond
-                        (\googleActionCmd ->
+                        (\googleEffectCmd ->
                             Cmd.batch
-                                [ googleActionCmd
+                                [ googleEffectCmd
                                 , Cmd.map (GotPageMsg << toMsg) cmd
                                 ]
                         )
@@ -623,6 +694,42 @@ view model =
                 [ sideBarView model
                 , main_ [ id "content", class "h-screen flex flex-col" ]
                     (headerView :: bodyPage)
+                , div [ class "toaster", id "toaster" ] <|
+                    List.map
+                        (\toast ->
+                            div
+                                [ class "toast"
+                                , role <|
+                                    case toast.config.category of
+                                        Toast.Error ->
+                                            "alert"
+
+                                        _ ->
+                                            "status"
+                                , ariaAtomic True
+                                , ariaHidden toast.hidden
+                                ]
+                                [ div [ class "toast-content" ]
+                                    [ case toast.config.category of
+                                        Toast.Success ->
+                                            successIcon []
+
+                                        Toast.Error ->
+                                            errorIcon []
+
+                                        Toast.Info ->
+                                            infoIcon []
+
+                                        Toast.Warning ->
+                                            warnIcon []
+                                    , section []
+                                        [ h2 [] [ text toast.config.title ]
+                                        , p [] [ text toast.config.description ]
+                                        ]
+                                    ]
+                                ]
+                        )
+                        model.toasts
                 ]
     }
 

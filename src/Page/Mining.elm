@@ -1,6 +1,5 @@
 module Page.Mining exposing (Model, Msg(..), init, subscriptions, update, view)
 
-import Api.Action as Action exposing (Action(..))
 import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Exchange.Sheets as Sheets
     exposing
@@ -9,7 +8,10 @@ import Api.Google.Exchange.Sheets as Sheets
         , RequestExtendedValue(..)
         )
 import Api.Google.Exchange.Task as Task
+import Api.Google.ListConstructor exposing (cellStringValue, constructFromList, extract, field)
+import Api.Google.Model as Model
 import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
+import Array exposing (Array)
 import Basecoat
     exposing
         ( ariaControls
@@ -20,6 +22,7 @@ import Basecoat
         , role
         , tabIndex
         )
+import Effect exposing (Effect(..))
 import Html
     exposing
         ( Attribute
@@ -28,6 +31,8 @@ import Html
         , div
         , h2
         , header
+        , input
+        , label
         , li
         , nav
         , p
@@ -37,7 +42,8 @@ import Html
         )
 import Html.Attributes
     exposing
-        ( class
+        ( attribute
+        , class
         , disabled
         , hidden
         , id
@@ -46,7 +52,9 @@ import Html.Attributes
         )
 import Html.Events exposing (onClick, stopPropagationOn)
 import Http
+import Icon.Loading exposing (loadingIcon)
 import Icon.Warn exposing (warnIcon)
+import Iso8601
 import Json.Decode as Decode
 import Port
 import Regex
@@ -55,6 +63,7 @@ import Session exposing (Session)
 import Task as PlatformTask
 import TaskPort
 import Time
+import Toast
 
 
 
@@ -69,7 +78,8 @@ type alias Model =
     , tagsInput : String
     , selectedWord : Maybe String
     , definitionState : DefinitionState
-    , addRequestState : AddRequestState
+    , addSentenceState : AddSentenceState
+    , getSentencesState : GetSentencesState
     }
 
 
@@ -79,19 +89,24 @@ type Tab
 
 
 type DefinitionState
-    = WordNotSelected
-    | Loading
-    | Fetched Usages
-    | NotFound
+    = DefinitionWordNotSelected
+    | DefinitionLoading
+    | DefinitionFetched Usages
+    | DefinitionNotFound
 
 
-type AddRequestState
-    = Idle
-    | Sending
-    | Error
+type AddSentenceState
+    = AddSentenceIdle
+    | AddSentenceLoading
 
 
-init : Session -> ( Model, Cmd Msg, Action Msg )
+type GetSentencesState
+    = GetSentencesLoading
+    | GetSentencesError
+    | GetSentencesFetched
+
+
+init : Session -> ( Model, Cmd Msg, Effect Msg )
 init session =
     ( { session = session
       , tab = MiningTab
@@ -99,11 +114,12 @@ init session =
       , sentenceWords = []
       , tagsInput = ""
       , selectedWord = Nothing
-      , definitionState = WordNotSelected
-      , addRequestState = Idle
+      , definitionState = DefinitionWordNotSelected
+      , addSentenceState = AddSentenceIdle
+      , getSentencesState = GetSentencesLoading
       }
     , Cmd.none
-    , Action.none
+    , Effect.none
     )
 
 
@@ -116,20 +132,20 @@ type Msg
     | BodyClicked
     | ClipboardUpdated (TaskPort.Result String)
     | WordSelected String
-    | DefinitionFetched (Result Http.Error Wiktionary.Usages)
+    | DefinitionFetchedResponse (Result Http.Error Wiktionary.Usages)
     | MineClicked
     | GotAddPendingSentenceResponse (Result Task.Error ())
     | OnTagsInputChanged String
     | Noop
 
 
-update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
+update : Msg -> Model -> ( Model, Cmd Msg, Effect Msg )
 update msg model =
     case msg of
         TabClicked tab ->
             ( { model | tab = tab }
             , Cmd.none
-            , Action.none
+            , Effect.none
             )
 
         ClipboardUpdated (Ok str) ->
@@ -138,49 +154,53 @@ update msg model =
                     String.trim str
             in
             if trimmed == model.sentence then
-                ( model, Cmd.none, Action.none )
+                ( model, Cmd.none, Effect.none )
 
             else
                 ( { model
                     | sentence = trimmed
                     , sentenceWords = RegexExtra.sentenceSplit str
                     , selectedWord = Nothing
-                    , definitionState = WordNotSelected
+                    , definitionState = DefinitionWordNotSelected
                   }
                 , Cmd.none
-                , Action.none
+                , Effect.none
                 )
 
         ClipboardUpdated (Err _) ->
-            ( model, Cmd.none, Action.none )
+            ( model, Cmd.none, Effect.none )
 
         WordSelected str ->
-            ( { model | selectedWord = Just str, definitionState = Loading }
+            ( { model
+                | selectedWord = Just str
+                , definitionState =
+                    DefinitionLoading
+              }
             , Cmd.none
-            , Action.wiktionary DefinitionFetched str
+            , Effect.wiktionary DefinitionFetchedResponse str
             )
 
-        DefinitionFetched result ->
+        DefinitionFetchedResponse result ->
             case ( result, model.selectedWord ) of
                 ( Ok definition, Just _ ) ->
-                    ( { model | definitionState = Fetched definition }
+                    ( { model | definitionState = DefinitionFetched definition }
                     , Cmd.none
-                    , Action.none
+                    , Effect.none
                     )
 
                 ( Err _, Just _ ) ->
-                    ( { model | definitionState = NotFound }
+                    ( { model | definitionState = DefinitionNotFound }
                     , Cmd.none
-                    , Action.none
+                    , Effect.none
                     )
 
                 _ ->
-                    ( model, Cmd.none, Action.none )
+                    ( model, Cmd.none, Effect.none )
 
         BodyClicked ->
             ( model
             , PlatformTask.attempt ClipboardUpdated Port.readClipboard
-            , Action.none
+            , Effect.none
             )
 
         MineClicked ->
@@ -188,7 +208,8 @@ update msg model =
                 | sentence = ""
                 , sentenceWords = []
                 , selectedWord = Nothing
-                , definitionState = WordNotSelected
+                , definitionState = DefinitionWordNotSelected
+                , addSentenceState = AddSentenceLoading
               }
             , Cmd.none
             , addPendingSentenceRequest
@@ -201,20 +222,33 @@ update msg model =
                         |> List.filter ((/=) "")
                 }
                 |> Task.sheetsAttempt GotAddPendingSentenceResponse
-                |> Action.google
+                |> Effect.google
             )
 
-        GotAddPendingSentenceResponse _ ->
-            ( model, Cmd.none, Action.none )
+        GotAddPendingSentenceResponse (Ok _) ->
+            ( { model | addSentenceState = AddSentenceIdle }
+            , Cmd.none
+            , Effect.none
+            )
+
+        GotAddPendingSentenceResponse (Err err) ->
+            ( { model | addSentenceState = AddSentenceIdle }
+            , Cmd.none
+            , Effect.toast
+                { category = Toast.Error
+                , title = "Failed to mine sentence"
+                , description = Task.errorToMessage err
+                }
+            )
 
         OnTagsInputChanged text ->
             ( { model | tagsInput = text }
             , Cmd.none
-            , Action.none
+            , Effect.none
             )
 
         Noop ->
-            ( model, Cmd.none, Action.none )
+            ( model, Cmd.none, Effect.none )
 
 
 type alias PendingSentence =
@@ -291,6 +325,40 @@ addPendingSentenceRequest { word, sentence, tags } =
                         }
                     ]
             )
+
+
+getPendingSentencesRequest : Task.SheetsTask (Array Model.PendingSentence)
+getPendingSentencesRequest =
+    Sheets.getSubSheetDataRequest
+        [ { sheetId = Constants.subSheetId PendingSentences
+          , startRowIndex = Just 1
+          , endRowIndex = Nothing
+          , startColumnIndex = Just 0
+          , endColumnIndex = Just 4
+          }
+        ]
+        |> Task.map (Model.fromGridData maybeConstructPendingSentence)
+        |> Task.map Array.fromList
+
+
+maybeConstructPendingSentence :
+    List Sheets.ResponseCellData
+    -> Maybe Model.PendingSentence
+maybeConstructPendingSentence =
+    constructFromList Model.PendingSentence
+        >> field cellStringValue
+        >> field cellStringValue
+        >> field
+            (cellStringValue
+                >> Maybe.map (Decode.decodeString (Decode.list Decode.string))
+                >> Maybe.andThen Result.toMaybe
+            )
+        >> field
+            (cellStringValue
+                >> Maybe.map Iso8601.toTime
+                >> Maybe.andThen Result.toMaybe
+            )
+        >> extract
 
 
 
@@ -370,6 +438,10 @@ view model =
     }
 
 
+
+-- MINING TAB
+
+
 miningTabView : Model -> Html Msg
 miningTabView model =
     div [ classes [ "flex flex-col h-full mt-2" ] ]
@@ -385,7 +457,14 @@ miningTabView model =
                 ]
             <|
                 List.concat
-                    [ [ div [ classes [ "flex", "justify-center", "flex-wrap" ] ] <|
+                    [ [ div
+                            [ classes
+                                [ "flex"
+                                , "justify-center"
+                                , "flex-wrap"
+                                ]
+                            ]
+                        <|
                             List.map
                                 (\word ->
                                     button
@@ -424,10 +503,23 @@ miningTabView model =
         , div [ classes [ "grow-0", "shrink-1", "mt-4" ] ]
             [ button
                 [ classes [ "btn-primary", "w-full", "mb-4" ]
-                , disabled (model.selectedWord == Nothing)
+                , disabled
+                    (model.selectedWord
+                        == Nothing
+                        || model.addSentenceState
+                        == AddSentenceLoading
+                    )
                 , onClick MineClicked
                 ]
-                [ text "Mine Sentence" ]
+                (List.concat
+                    [ if model.addSentenceState == AddSentenceLoading then
+                        [ loadingIcon [] ]
+
+                      else
+                        []
+                    , [ text "Mine Sentence" ]
+                    ]
+                )
             ]
         ]
 
@@ -443,10 +535,10 @@ dictionaryView maybeWord definitionState =
                         ]
                   ]
                 , case definitionState of
-                    WordNotSelected ->
+                    DefinitionWordNotSelected ->
                         []
 
-                    Loading ->
+                    DefinitionLoading ->
                         [ div [ classes [ "card", "p-3", "mt-4", "gap-2" ] ]
                             [ header [ class "p-0" ]
                                 [ div
@@ -475,13 +567,13 @@ dictionaryView maybeWord definitionState =
                             ]
                         ]
 
-                    Fetched (Usages []) ->
+                    DefinitionFetched (Usages []) ->
                         [ notFoundView ]
 
-                    Fetched usages ->
+                    DefinitionFetched usages ->
                         usagesView usages
 
-                    NotFound ->
+                    DefinitionNotFound ->
                         [ notFoundView ]
                 ]
 
@@ -597,9 +689,26 @@ formUsagesView isLastDefinition { word, usages } =
             formUsages
 
 
+
+-- PENDING SENTENCES TAB
+
+
 pendingSentencesTabView : Model -> Html Msg
 pendingSentencesTabView model =
-    div [] []
+    label [ class "flex items-start gap-3 border p-3 hover:bg-accent/50 rounded-lg has-[input[type='checkbox']:checked]:border-blue-600 has-[input[type='checkbox']:checked]:bg-blue-50 dark:has-[input[type='checkbox']:checked]:border-blue-900 dark:has-[input[type='checkbox']:checked]:bg-blue-950" ]
+        [ input
+            [ attribute "checked" ""
+            , class "input checked:bg-blue-600 checked:border-blue-600 dark:checked:bg-blue-700 dark:checked:border-blue-700 checked:after:bg-white"
+            , type_ "checkbox"
+            ]
+            []
+        , div [ class "grid gap-2" ]
+            [ h2 [ class "text-sm leading-none font-medium" ]
+                [ text "Enable notifications" ]
+            , p [ class "text-muted-foreground text-sm" ]
+                [ text "You can enable or disable notifications at any time." ]
+            ]
+        ]
 
 
 onClick : msg -> Attribute msg

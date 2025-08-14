@@ -13,7 +13,7 @@ import Api.Google.Exchange.Drive as Drive
 import Api.Google.Exchange.SheetsCmd as DriveCmd exposing (SheetsCmd)
 import Api.Google.Exchange.Task as Task
 import Api.Google.Migration as Migration
-import OutMsg exposing (OutMsg(..))
+import Api.OutMsg as OutMsg exposing (OutMsg(..))
 import Port
 import Task as PlatformTask
 import TaskPort

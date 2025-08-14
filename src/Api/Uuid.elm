@@ -1,6 +1,6 @@
 module Api.Uuid exposing (Model, Msg(..), init, subscriptions, update)
 
-import OutMsg exposing (OutMsg)
+import Api.OutMsg as OutMsg exposing (OutMsg)
 import UUID as Uuid
 
 

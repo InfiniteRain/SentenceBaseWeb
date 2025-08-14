@@ -7,6 +7,7 @@ module Api.Google.Exchange.Task exposing
     , andThen
     , driveAttempt
     , driveHttp
+    , errorToMessage
     , map
     , platform
     , sheetsAttempt
@@ -17,9 +18,10 @@ module Api.Google.Exchange.Task exposing
 import Api.Google.Exchange.SheetsCmd as SheetCmd exposing (SheetsCmd)
 import Http exposing (Error(..))
 import Json.Decode as Decode exposing (Decoder)
+import Json.Encode exposing (encode)
 import Port
 import Task
-import TaskPort
+import TaskPort exposing (Error(..))
 
 
 
@@ -236,3 +238,38 @@ handleJsonResponse decoder response =
 jsonResolver : Decoder response -> Http.Resolver Error response
 jsonResolver decoder =
     Http.stringResolver <| handleJsonResponse <| decoder
+
+
+errorToMessage : Error -> String
+errorToMessage error =
+    case error of
+        HttpError httpError ->
+            case httpError of
+                BadUrl url ->
+                    "Bad url: " ++ url
+
+                Timeout ->
+                    "Request timed out"
+
+                NetworkError ->
+                    "Encountered a network error"
+
+                BadStatus status ->
+                    "Bad response status code: " ++ String.fromInt status
+
+                BadBody _ ->
+                    "Received invalid body"
+
+        TokenAcquisitionError taError ->
+            case taError of
+                InteropError _ ->
+                    "Interop error"
+
+                JSError (TaskPort.ErrorObject name _) ->
+                    "Error thrown: " ++ name
+
+                JSError (TaskPort.ErrorValue value) ->
+                    "Error thrown: " ++ encode 4 value
+
+        PlatformTaskError ->
+            "Platform task error"

@@ -1,11 +1,11 @@
 module Page.Batches exposing (Model, Msg(..), init, subscriptions, update, view)
 
-import Api.Action as Action exposing (Action)
 import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Exchange.Sheets as Sheets exposing (RequestBatchUpdateKind(..), RequestDimension(..), RequestExtendedValue(..), requestRow)
 import Api.Google.Exchange.Task as Task
 import Api.Google.ListConstructor exposing (cellStringValue, constructFromList, extract, field)
 import Api.Google.Model as Model
+import Effect exposing (Effect)
 import Html exposing (Html, button, div, text)
 import Html.Events exposing (onClick)
 import Iso8601
@@ -21,11 +21,11 @@ type alias Model =
     { session : Session }
 
 
-init : Session -> ( Model, Cmd Msg, Action Msg )
+init : Session -> ( Model, Cmd Msg, Effect Msg )
 init session =
     ( { session = session }
     , Cmd.none
-    , Action.none
+    , Effect.none
     )
 
 
@@ -38,7 +38,7 @@ type Msg
     | Bar (Result Task.Error ())
 
 
-update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
+update : Msg -> Model -> ( Model, Cmd Msg, Effect Msg )
 update msg model =
     case msg of
         Foo ->
@@ -46,11 +46,11 @@ update msg model =
             , Cmd.none
             , getBatchesRequest 0
                 |> Task.sheetsAttempt Bar
-                |> Action.google
+                |> Effect.google
             )
 
         Bar _ ->
-            ( model, Cmd.none, Action.none )
+            ( model, Cmd.none, Effect.none )
 
 
 getBatchesRequest : Int -> Task.SheetsTask ()

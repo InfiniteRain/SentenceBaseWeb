@@ -1,11 +1,11 @@
 module Page.Auth exposing (Model, Msg(..), init, subscriptions, update, view)
 
-import Api.Action as Action exposing (Action)
 import Api.Google as Google
     exposing
         ( InitializeFailure(..)
         , InitializeUpdate(..)
         )
+import Effect exposing (Effect)
 import Html exposing (Html, br, button, div, text)
 import Html.Events exposing (onClick)
 import Route
@@ -23,14 +23,14 @@ type alias Model =
     }
 
 
-init : Session -> ( Model, Cmd Msg, Action Msg )
+init : Session -> ( Model, Cmd Msg, Effect Msg )
 init session =
     ( { statusText = "Authenticating..."
       , initFailed = False
       , session = session
       }
     , Cmd.none
-    , Action.googleInitialize InitializeUpdated
+    , Effect.googleInitialize InitializeUpdated
     )
 
 
@@ -43,19 +43,19 @@ type Msg
     | TryAgainClicked
 
 
-update : Msg -> Model -> ( Model, Cmd Msg, Action Msg )
+update : Msg -> Model -> ( Model, Cmd Msg, Effect Msg )
 update msg ({ session } as model) =
     case msg of
         InitializeUpdated Done ->
             ( { model | session = Session.authenticate session }
             , Route.navigate session Route.Mining
-            , Action.none
+            , Effect.none
             )
 
         InitializeUpdated (Failed _) ->
             ( { model | initFailed = True }
             , Cmd.none
-            , Action.none
+            , Effect.none
             )
 
         InitializeUpdated initializeUpdate ->
@@ -63,13 +63,13 @@ update msg ({ session } as model) =
                 | statusText = initializeUpdateToStatusText initializeUpdate
               }
             , Cmd.none
-            , Action.none
+            , Effect.none
             )
 
         TryAgainClicked ->
             ( { model | initFailed = False }
             , Cmd.none
-            , Action.googleInitialize InitializeUpdated
+            , Effect.googleInitialize InitializeUpdated
             )
 
 

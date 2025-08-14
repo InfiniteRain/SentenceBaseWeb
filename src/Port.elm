@@ -3,6 +3,7 @@ module Port exposing
     , googleGetTokenRefresh
     , googleInitialize
     , readClipboard
+    , timeout
     )
 
 import Json.Decode as Decode
@@ -55,3 +56,22 @@ readClipboard =
         { function = "readClipboard"
         , valueDecoder = Decode.string
         }
+
+
+
+-- TIMEOUT
+
+
+timeout : Int -> Int -> TaskPort.Task Int
+timeout id time =
+    TaskPort.call
+        { function = "timeout"
+        , valueDecoder = Decode.int
+        , argsEncoder =
+            \() ->
+                Encode.object
+                    [ ( "id", Encode.int id )
+                    , ( "timeout", Encode.int time )
+                    ]
+        }
+        ()

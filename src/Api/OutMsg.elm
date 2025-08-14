@@ -1,4 +1,4 @@
-module OutMsg exposing (OutMsg, combine, none, some, toList)
+module Api.OutMsg exposing (OutMsg, combine, none, some, toList)
 
 -- TYPES
 

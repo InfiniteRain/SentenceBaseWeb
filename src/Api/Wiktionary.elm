@@ -12,11 +12,11 @@ module Api.Wiktionary exposing
     , update
     )
 
+import Api.OutMsg as OutMsg exposing (OutMsg(..))
 import Dict exposing (Dict)
 import Html.Parser as Parser exposing (Node(..))
 import Http
 import Json.Decode as Decode exposing (Decoder)
-import OutMsg exposing (OutMsg(..))
 import Regex
 import RegexExtra
 import Set exposing (Set)

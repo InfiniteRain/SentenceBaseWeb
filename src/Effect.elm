@@ -1,10 +1,11 @@
-module Api.Action exposing
-    ( Action
+module Effect exposing
+    ( Effect
     , google
     , googleInitialize
     , map
     , match
     , none
+    , toast
     , uuid
     , wiktionary
     )
@@ -13,34 +14,36 @@ import Api.Google as Google exposing (Action(..))
 import Api.Google.Exchange.SheetsCmd as SheetsCmd exposing (SheetsCmd)
 import Api.Wiktionary as Wiktionary
 import Http
+import Toast
 
 
 
 -- TYPES
 
 
-type Action msg
+type Effect msg
     = None
     | Google (Google.Action msg)
     | Wiktionary (Wiktionary.RequestConfig msg)
     | Uuid (String -> msg)
+    | Toast Toast.Config
 
 
 
 -- CONSTRUCTORS
 
 
-none : Action msg
+none : Effect msg
 none =
     None
 
 
-google : SheetsCmd msg -> Action msg
+google : SheetsCmd msg -> Effect msg
 google sheetsCmd =
     Google <| SendRequest sheetsCmd
 
 
-googleInitialize : (Google.InitializeUpdate -> msg) -> Action msg
+googleInitialize : (Google.InitializeUpdate -> msg) -> Effect msg
 googleInitialize msg =
     Google <| Initialize msg
 
@@ -48,14 +51,19 @@ googleInitialize msg =
 wiktionary :
     (Result Http.Error Wiktionary.Usages -> msg)
     -> String
-    -> Action msg
+    -> Effect msg
 wiktionary toMsg word =
     Wiktionary <| { word = word, toMsg = toMsg }
 
 
-uuid : (String -> msg) -> Action msg
+uuid : (String -> msg) -> Effect msg
 uuid toMsg =
     Uuid toMsg
+
+
+toast : Toast.Config -> Effect msg
+toast config =
+    Toast config
 
 
 
@@ -63,16 +71,17 @@ uuid toMsg =
 
 
 match :
-    Action msg
+    Effect msg
     ->
         { onNone : a
         , onGoogle : Google.Action msg -> a
         , onWiktionary : Wiktionary.RequestConfig msg -> a
         , onUuid : (String -> msg) -> a
+        , onToast : Toast.Config -> a
         }
     -> a
-match action { onNone, onGoogle, onWiktionary, onUuid } =
-    case action of
+match effect { onNone, onGoogle, onWiktionary, onUuid, onToast } =
+    case effect of
         None ->
             onNone
 
@@ -85,12 +94,15 @@ match action { onNone, onGoogle, onWiktionary, onUuid } =
         Uuid toMsg ->
             onUuid toMsg
 
+        Toast config ->
+            onToast config
+
 
 
 -- TRANSFORMERS
 
 
-map : (a -> msg) -> Action a -> Action msg
+map : (a -> msg) -> Effect a -> Effect msg
 map toMsg msg =
     case msg of
         None ->
@@ -110,3 +122,6 @@ map toMsg msg =
 
         Uuid uuidToMsg ->
             Uuid (uuidToMsg >> toMsg)
+
+        Toast config ->
+            Toast config
