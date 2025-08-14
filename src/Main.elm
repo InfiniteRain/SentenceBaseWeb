@@ -48,6 +48,7 @@ import Html.Attributes
         ( class
         , href
         , id
+        , target
         , type_
         )
 import Html.Events exposing (onClick)
@@ -817,7 +818,10 @@ sideBarView model =
                         [ text "About" ]
                     , ul []
                         [ li []
-                            [ a [ href "https://github.com/InfiniteRain/SentenceBaseWeb" ]
+                            [ a
+                                [ href "https://github.com/InfiniteRain/SentenceBaseWeb"
+                                , target "_blank"
+                                ]
                                 [ gitHubIcon []
                                 , span [] [ text "GitHub" ]
                                 ]
