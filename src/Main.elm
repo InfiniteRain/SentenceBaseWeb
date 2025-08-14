@@ -637,7 +637,7 @@ view model =
             pageView model.page
 
         bodyPage =
-            [ div
+            div
                 [ classes
                     [ "p-4"
                     , "grow-1"
@@ -646,19 +646,29 @@ view model =
                     ]
                 ]
                 body
-            ]
     in
     { title = title
     , body =
-        case model.page of
-            Auth _ ->
-                bodyPage
+        List.concat
+            [ case model.page of
+                Auth _ ->
+                    [ bodyPage ]
 
-            _ ->
-                [ sideBarView model
-                , main_ [ id "content", class "h-screen flex flex-col" ]
-                    (headerView :: bodyPage)
-                , div [ class "toaster", id "toaster" ] <|
+                _ ->
+                    [ sideBarView model
+                    , main_
+                        [ id "content"
+                        , classes
+                            [ "h-screen"
+                            , "flex"
+                            , "flex-col"
+                            ]
+                        ]
+                        [ headerView
+                        , bodyPage
+                        ]
+                    ]
+            , [ div [ class "toaster", id "toaster" ] <|
                     List.map
                         (\toast ->
                             div
@@ -694,7 +704,8 @@ view model =
                                 ]
                         )
                         model.toasts
-                ]
+              ]
+            ]
     }
 
 
