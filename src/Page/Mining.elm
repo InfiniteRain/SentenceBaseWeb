@@ -23,6 +23,7 @@ import Array
 import Basecoat
     exposing
         ( ariaControls
+        , ariaInvalid
         , ariaLabel
         , ariaLabelledBy
         , ariaOrientation
@@ -147,6 +148,13 @@ type alias EditSentenceForm =
     , index : Int
     , sentence : PendingSentence
     , newTag : String
+    , validation : EditSentenceFormValidation
+    }
+
+
+type alias EditSentenceFormValidation =
+    { word : Maybe String
+    , sentence : Maybe String
     }
 
 
@@ -180,6 +188,10 @@ init session =
                 , addedAt = Time.millisToPosix 0
                 }
             , newTag = ""
+            , validation =
+                { word = Nothing
+                , sentence = Nothing
+                }
             }
       , deleteSentenceForm =
             { isOpen = False
@@ -441,6 +453,10 @@ update msg model =
                                         , index = index
                                         , sentence = sentence
                                         , newTag = ""
+                                        , validation =
+                                            { word = Nothing
+                                            , sentence = Nothing
+                                            }
                                         }
                                     )
                                 |> Maybe.withDefault model.editSentenceForm
@@ -461,15 +477,40 @@ update msg model =
 
                         { sentence, newTag } =
                             form
+
+                        { validation } =
+                            form
                     in
                     case formInput of
                         WordField newWord ->
-                            { form | sentence = { sentence | word = newWord } }
+                            { form
+                                | sentence = { sentence | word = newWord }
+                                , validation =
+                                    { validation
+                                        | word =
+                                            case newWord of
+                                                "" ->
+                                                    Just "Word field cannot be empty"
+
+                                                _ ->
+                                                    Nothing
+                                    }
+                            }
 
                         SentenceField newSentence ->
                             { form
                                 | sentence =
                                     { sentence | sentence = newSentence }
+                                , validation =
+                                    { validation
+                                        | sentence =
+                                            case newSentence of
+                                                "" ->
+                                                    Just "Sentence field cannot be empty"
+
+                                                _ ->
+                                                    Nothing
+                                    }
                             }
 
                         NewTagField newNewTag ->
@@ -531,6 +572,9 @@ update msg model =
             let
                 form =
                     model.editSentenceForm
+
+                { sentence } =
+                    form
             in
             ( { model
                 | editSentenceState = EditSentenceIdle
@@ -540,12 +584,15 @@ update msg model =
                         GetSentencesFetched (Ok sentences) ->
                             (GetSentencesFetched << Ok) <|
                                 List.indexedMap
-                                    (\index sentence ->
-                                        if index == model.editSentenceForm.index then
-                                            model.editSentenceForm.sentence
+                                    (\index currentSentence ->
+                                        if index == form.index then
+                                            { sentence
+                                                | word =
+                                                    String.toLower sentence.word
+                                            }
 
                                         else
-                                            sentence
+                                            currentSentence
                                     )
                                     sentences
 
@@ -884,7 +931,7 @@ editPendingSentenceRequest from to =
             { sheetId = Constants.subSheetId PendingSentences
             , rows =
                 Sheets.requestRow
-                    [ RequestString to.word
+                    [ RequestString <| String.toLower to.word
                     , RequestString to.sentence
                     , Sheets.tagsExtendedValue to.tags
                     , Sheets.timestampExtendedValue to.addedAt
@@ -1029,28 +1076,71 @@ editSentenceDialogView model =
                 ]
             , section []
                 [ form [ classes [ "form", "grid", "gap-4" ] ] <|
-                    [ div [ classes [ "grid", "gap-3" ] ]
-                        [ label [ for "edit-sentence-word" ]
-                            [ text "Word" ]
-                        , input
-                            [ type_ "text"
-                            , id "edit-sentence-word"
-                            , value model.editSentenceForm.sentence.word
-                            , onInput (UpdatedEditSentenceForm << WordField)
+                    [ div [ classes [ "grid", "gap-3" ] ] <|
+                        List.concat
+                            [ [ label [ for "edit-sentence-word" ]
+                                    [ text "Word" ]
+                              , input
+                                    [ type_ "text"
+                                    , id "edit-sentence-word"
+                                    , value model.editSentenceForm.sentence.word
+                                    , onInput
+                                        (UpdatedEditSentenceForm
+                                            << WordField
+                                        )
+                                    , ariaInvalid
+                                        (model.editSentenceForm.validation.word
+                                            /= Nothing
+                                        )
+                                    ]
+                                    []
+                              ]
+                            , case model.editSentenceForm.validation.word of
+                                Just error ->
+                                    [ p
+                                        [ classes
+                                            [ "text-destructive"
+                                            , "text-sm"
+                                            ]
+                                        ]
+                                        [ text error ]
+                                    ]
+
+                                _ ->
+                                    []
                             ]
-                            []
-                        ]
-                    , div [ classes [ "grid", "gap-3" ] ]
-                        [ label [ for "edit-sentence-sentence" ]
-                            [ text "Sentence" ]
-                        , textarea
-                            [ id "edit-sentence-sentence"
-                            , onInput
-                                (UpdatedEditSentenceForm << SentenceField)
+                    , div [ classes [ "grid", "gap-3" ] ] <|
+                        List.concat
+                            [ [ label [ for "edit-sentence-sentence" ]
+                                    [ text "Sentence" ]
+                              , textarea
+                                    [ id "edit-sentence-sentence"
+                                    , onInput
+                                        (UpdatedEditSentenceForm
+                                            << SentenceField
+                                        )
+                                    , ariaInvalid
+                                        (model.editSentenceForm.validation.sentence
+                                            /= Nothing
+                                        )
+                                    ]
+                                    [ text model.editSentenceForm.sentence.sentence
+                                    ]
+                              ]
+                            , case model.editSentenceForm.validation.sentence of
+                                Just error ->
+                                    [ p
+                                        [ classes
+                                            [ "text-destructive"
+                                            , "text-sm"
+                                            ]
+                                        ]
+                                        [ text error ]
+                                    ]
+
+                                _ ->
+                                    []
                             ]
-                            [ text model.editSentenceForm.sentence.sentence
-                            ]
-                        ]
                     , div [ classes [ "grid", "gap-3" ] ] <|
                         List.concat
                             [ [ label [ for "edit-sentence-tags" ]
@@ -1132,7 +1222,14 @@ editSentenceDialogView model =
                 , button
                     [ class "btn"
                     , onClick EditSentenceConfirmClicked
-                    , disabled (model.editSentenceState == EditSentenceLoading)
+                    , disabled
+                        (model.editSentenceState
+                            == EditSentenceLoading
+                            || model.editSentenceForm.validation.word
+                            /= Nothing
+                            || model.editSentenceForm.validation.sentence
+                            /= Nothing
+                        )
                     ]
                   <|
                     List.concat

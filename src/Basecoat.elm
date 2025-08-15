@@ -3,6 +3,7 @@ module Basecoat exposing
     , ariaControls
     , ariaCurrent
     , ariaHidden
+    , ariaInvalid
     , ariaLabel
     , ariaLabelledBy
     , ariaOrientation
@@ -72,6 +73,11 @@ ariaSelected value =
 ariaAtomic : Bool -> Attribute msg
 ariaAtomic value =
     attribute "aria-atomic" (boolToString value)
+
+
+ariaInvalid : Bool -> Attribute msg
+ariaInvalid value =
+    attribute "aria-invalid" (boolToString value)
 
 
 dataAlign : String -> Attribute msg
