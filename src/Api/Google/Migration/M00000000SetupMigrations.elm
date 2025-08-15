@@ -80,7 +80,7 @@ update msg model =
                 , name = "migrations"
                 , columns =
                     [ ( "name", MigrationName )
-                    , ( "applied_at", DateTime )
+                    , ( "applied_at", Timestamp )
                     ]
                 }
             )
@@ -210,7 +210,7 @@ extractTitle sheetData =
 
 type Column
     = MigrationName
-    | DateTime
+    | Timestamp
 
 
 columnSize : Column -> Int
@@ -219,7 +219,7 @@ columnSize column =
         MigrationName ->
             150
 
-        DateTime ->
+        Timestamp ->
             200
 
 

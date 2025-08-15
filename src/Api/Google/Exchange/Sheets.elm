@@ -11,15 +11,14 @@ module Api.Google.Exchange.Sheets exposing
     , batchUpdateAndGetGridDataRequest
     , batchUpdateRequest
     , getSubSheetDataRequest
-    , iso8601ExtendedValue
     , requestRow
     , requestRows
     , tagsExtendedValue
+    , timestampExtendedValue
     )
 
 import Api.Google.Exchange.Task as Task
 import Http exposing (Error(..))
-import Iso8601
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
 import Time
@@ -811,9 +810,11 @@ tagsExtendedValue tags =
     RequestString <| encodeTags tags
 
 
-iso8601ExtendedValue : Time.Posix -> RequestExtendedValue
-iso8601ExtendedValue time =
-    RequestString <| Iso8601.fromTime time
+timestampExtendedValue : Time.Posix -> RequestExtendedValue
+timestampExtendedValue time =
+    Time.posixToMillis time
+        |> toFloat
+        |> RequestNumber
 
 
 encodeTags : List String -> String

@@ -1,12 +1,12 @@
-module Icon.Warning exposing (..)
+module Icon.WarningTriangle exposing (..)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)
 import Svg
 
 
-warningIcon : List (Attribute msg) -> Svg.Svg msg
-warningIcon attrs =
+warningTriangleIcon : List (Attribute msg) -> Svg.Svg msg
+warningTriangleIcon attrs =
     Svg.node "svg"
         ([ attribute "aria-hidden" "true"
          , attribute "xmlns" "http://www.w3.org/2000/svg"
@@ -29,4 +29,3 @@ warningIcon attrs =
         , Svg.node "path" [ attribute "d" "M12 9v4" ] []
         , Svg.node "path" [ attribute "d" "M12 17h.01" ] []
         ]
-

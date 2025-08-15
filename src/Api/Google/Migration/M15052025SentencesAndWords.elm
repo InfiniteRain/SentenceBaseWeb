@@ -62,7 +62,7 @@ createSubSheetsTask =
                     [ ( "word", Word )
                     , ( "sentence", Sentence )
                     , ( "tags", Tags )
-                    , ( "added_at", DateTime )
+                    , ( "added_at", Timestamp )
                     ]
               }
             , { id = 300
@@ -72,14 +72,14 @@ createSubSheetsTask =
                     , ( "sentence", Sentence )
                     , ( "tags", Tags )
                     , ( "batch_id", Id )
-                    , ( "mined_at", DateTime )
+                    , ( "mined_at", Timestamp )
                     ]
               }
             , { id = 400
               , name = "mined_words"
               , columns =
                     [ ( "word", Word )
-                    , ( "mined_at", DateTime )
+                    , ( "mined_at", Timestamp )
                     ]
               }
             , { id = 500
@@ -88,7 +88,7 @@ createSubSheetsTask =
                     [ ( "word", Word )
                     , ( "sentence", Sentence )
                     , ( "tags", Tags )
-                    , ( "backlogged_at", DateTime )
+                    , ( "backlogged_at", Timestamp )
                     ]
               }
             ]
@@ -100,7 +100,7 @@ createSubSheetsTask =
 
 
 type Column
-    = DateTime
+    = Timestamp
     | Word
     | Sentence
     | Tags
@@ -110,7 +110,7 @@ type Column
 columnSize : Column -> Int
 columnSize column =
     case column of
-        DateTime ->
+        Timestamp ->
             200
 
         Word ->

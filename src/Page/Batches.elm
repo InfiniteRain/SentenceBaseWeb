@@ -3,14 +3,15 @@ module Page.Batches exposing (Model, Msg(..), init, subscriptions, update, view)
 import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Exchange.Sheets as Sheets exposing (RequestBatchUpdateKind(..), RequestDimension(..), RequestExtendedValue(..), requestRow)
 import Api.Google.Exchange.Task as Task
-import Api.Google.ListConstructor exposing (cellStringValue, constructFromList, extract, field)
+import Api.Google.ListConstructor exposing (cellNumberValue, cellStringValue, constructFromList, extract, field)
 import Api.Google.Model as Model
 import Effect exposing (Effect)
 import Html exposing (Html, button, div, text)
 import Html.Events exposing (onClick)
-import Iso8601
 import Json.Decode as Decode
 import Session exposing (Session)
+import Set
+import Time
 
 
 
@@ -105,27 +106,6 @@ getBatchesRequest page =
 constructBatchIds : List Sheets.ResponseCellData -> Maybe String
 constructBatchIds =
     List.head >> Maybe.andThen cellStringValue
-
-
-maybeConstructMinedSentence :
-    List Sheets.ResponseCellData
-    -> Maybe Model.MinedSentence
-maybeConstructMinedSentence =
-    constructFromList Model.MinedSentence
-        >> field cellStringValue
-        >> field cellStringValue
-        >> field
-            (cellStringValue
-                >> Maybe.map (Decode.decodeString (Decode.list Decode.string))
-                >> Maybe.andThen Result.toMaybe
-            )
-        >> field cellStringValue
-        >> field
-            (cellStringValue
-                >> Maybe.map Iso8601.toTime
-                >> Maybe.andThen Result.toMaybe
-            )
-        >> extract
 
 
 

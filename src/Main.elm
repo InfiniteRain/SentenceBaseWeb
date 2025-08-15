@@ -58,7 +58,7 @@ import Icon.Info exposing (infoIcon)
 import Icon.Menu exposing (menuIcon)
 import Icon.Pickaxe exposing (pickaxeIcon)
 import Icon.Success exposing (successIcon)
-import Icon.Warn exposing (warnIcon)
+import Icon.WarningCircle exposing (warningCircleIcon)
 import Page.Auth as Auth exposing (Msg(..))
 import Page.Batches as Batches
 import Page.Mining as Mining exposing (Msg(..))
@@ -696,7 +696,7 @@ view model =
                                             infoIcon []
 
                                         Toast.Warning ->
-                                            warnIcon []
+                                            warningCircleIcon []
                                     , section []
                                         [ h2 [] [ text toast.config.title ]
                                         , p [] [ text toast.config.description ]

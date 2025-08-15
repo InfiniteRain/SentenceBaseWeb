@@ -11,6 +11,7 @@ import Api.Google.Exchange.Sheets as Sheets
     exposing
         ( RequestBatchUpdateKind(..)
         , RequestExtendedValue(..)
+        , timestampExtendedValue
         )
 import Api.Google.Exchange.SheetsCmd as SheetsCmd
 import Api.Google.Exchange.Task as Task
@@ -18,7 +19,6 @@ import Api.Google.Migration.Config exposing (Config)
 import Api.Google.Migration.Effect as Effect exposing (Effect, EffectInner(..))
 import Api.Google.Migration.M00000000SetupMigrations as SetupMigrations
 import Api.Google.Migration.M15052025SentencesAndWords as SentencesAndWords
-import Iso8601
 import Set
 import Time
 
@@ -252,7 +252,7 @@ fillMigrationsRequest migrationId time =
             , rows =
                 Sheets.requestRow
                     [ RequestString migrationId
-                    , RequestString <| Iso8601.fromTime time
+                    , timestampExtendedValue time
                     ]
             , fields = "userEnteredValue"
             }

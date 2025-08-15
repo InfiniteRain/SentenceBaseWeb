@@ -6,24 +6,29 @@ import Api.Google.Exchange.Sheets as Sheets
         ( RequestBatchUpdateKind(..)
         , RequestDimension(..)
         , RequestExtendedValue(..)
+        , requestRow
         )
 import Api.Google.Exchange.Task as Task
 import Api.Google.ListConstructor
     exposing
-        ( cellStringValue
+        ( cellNumberValue
+        , cellStringValue
         , constructFromList
         , extract
         , field
         )
-import Api.Google.Model as Model
+import Api.Google.Model as Model exposing (PendingSentence)
 import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
+import Array
 import Basecoat
     exposing
         ( ariaControls
+        , ariaLabel
         , ariaLabelledBy
         , ariaOrientation
         , ariaSelected
         , classes
+        , modalDialog
         , role
         , tabIndex
         )
@@ -32,8 +37,11 @@ import Html
     exposing
         ( Attribute
         , Html
+        , article
         , button
         , div
+        , footer
+        , form
         , h2
         , header
         , input
@@ -43,6 +51,7 @@ import Html
         , p
         , section
         , text
+        , textarea
         , ul
         )
 import Html.Attributes
@@ -50,17 +59,23 @@ import Html.Attributes
         ( checked
         , class
         , disabled
+        , for
         , hidden
         , id
+        , placeholder
         , style
         , type_
+        , value
         )
-import Html.Events exposing (onCheck, stopPropagationOn)
+import Html.Events exposing (onCheck, onInput, stopPropagationOn)
 import Http
+import Icon.Cross exposing (crossIcon)
 import Icon.Info exposing (infoIcon)
 import Icon.Loading exposing (loadingIcon)
-import Icon.Warn exposing (warnIcon)
-import Iso8601
+import Icon.Plus exposing (plusIcon)
+import Icon.SquarePen exposing (squarePenIcon)
+import Icon.Trash exposing (trashIcon)
+import Icon.WarningCircle exposing (warningCircleIcon)
 import Json.Decode as Decode
 import Port
 import Regex
@@ -82,13 +97,14 @@ type alias Model =
     , tab : Tab
     , sentence : String
     , sentenceWords : List String
-    , tagsInput : String
     , selectedWord : Maybe String
     , definitionState : DefinitionState
     , addSentenceState : AddSentenceState
     , getSentencesState : GetSentencesState
     , selectedSentences : Set Int
     , confirmBatchState : ConfirmBatchState
+    , editSentenceForm : EditSentenceForm
+    , deleteSentenceForm : DeleteSentenceForm
     }
 
 
@@ -112,12 +128,27 @@ type AddSentenceState
 type GetSentencesState
     = GetSentencesStale
     | GetSentencesLoading
-    | GetSentencesFetched (Result Task.Error (List Model.PendingSentence))
+    | GetSentencesFetched (Result Task.Error (List PendingSentence))
 
 
 type ConfirmBatchState
     = ConfirmBatchIdle
     | ConfirmBatchLoading
+
+
+type alias EditSentenceForm =
+    { isOpen : Bool
+    , index : Int
+    , sentence : PendingSentence
+    , newTag : String
+    }
+
+
+type alias DeleteSentenceForm =
+    { isOpen : Bool
+    , index : Int
+    , sentence : PendingSentence
+    }
 
 
 init : Session -> ( Model, Cmd Msg, Effect Msg )
@@ -126,13 +157,33 @@ init session =
       , tab = MiningTab
       , sentence = ""
       , sentenceWords = []
-      , tagsInput = ""
       , selectedWord = Nothing
       , definitionState = DefinitionWordNotSelected
       , addSentenceState = AddSentenceIdle
       , getSentencesState = GetSentencesStale
       , selectedSentences = Set.empty
       , confirmBatchState = ConfirmBatchIdle
+      , editSentenceForm =
+            { isOpen = False
+            , index = 0
+            , sentence =
+                { word = ""
+                , sentence = ""
+                , tags = []
+                , addedAt = Time.millisToPosix 0
+                }
+            , newTag = ""
+            }
+      , deleteSentenceForm =
+            { isOpen = False
+            , index = 0
+            , sentence =
+                { word = ""
+                , sentence = ""
+                , tags = []
+                , addedAt = Time.millisToPosix 0
+                }
+            }
       }
     , Cmd.none
     , Effect.none
@@ -151,12 +202,24 @@ type Msg
     | DefinitionFetchedResponse (Result Http.Error Wiktionary.Usages)
     | MineClicked
     | GotAddPendingSentenceResponse (Result Task.Error ())
-    | OnTagsInputChanged String
-    | GotSentencesResponse (Result Task.Error (List Model.PendingSentence))
+    | GotSentencesResponse (Result Task.Error (List PendingSentence))
     | SentenceChecked Int
     | ConfirmBatchClicked
     | UuidReceived String
     | GotConfirmBatchResponse (Result Task.Error ())
+    | EditSentenceClicked Int
+    | EditSentenceClose
+    | UpdatedEditSentenceForm EditSentenceInput
+    | DeleteSentenceClicked Int
+    | DeleteSentenceClose
+
+
+type EditSentenceInput
+    = WordField String
+    | SentenceField String
+    | NewTagField String
+    | TagAdded
+    | TagRemoved String
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Effect Msg )
@@ -252,11 +315,7 @@ update msg model =
             , addPendingSentenceRequest
                 { word = model.selectedWord |> Maybe.withDefault ""
                 , sentence = model.sentence
-                , tags =
-                    model.tagsInput
-                        |> String.trim
-                        |> Regex.split RegexExtra.space
-                        |> List.filter ((/=) "")
+                , tags = []
                 }
                 |> Task.sheetsAttempt GotAddPendingSentenceResponse
                 |> Effect.google
@@ -276,12 +335,6 @@ update msg model =
                 , title = "Failed to mine sentence"
                 , description = Task.errorToMessage err
                 }
-            )
-
-        OnTagsInputChanged text ->
-            ( { model | tagsInput = text }
-            , Cmd.none
-            , Effect.none
             )
 
         GotSentencesResponse response ->
@@ -365,8 +418,126 @@ update msg model =
                 }
             )
 
+        EditSentenceClicked index ->
+            ( { model
+                | editSentenceForm =
+                    case model.getSentencesState of
+                        GetSentencesFetched (Ok sentences) ->
+                            sentences
+                                |> Array.fromList
+                                |> Array.get index
+                                |> Maybe.map
+                                    (\sentence ->
+                                        { isOpen = True
+                                        , index = index
+                                        , sentence = sentence
+                                        , newTag = ""
+                                        }
+                                    )
+                                |> Maybe.withDefault model.editSentenceForm
 
-type alias PendingSentence =
+                        _ ->
+                            model.editSentenceForm
+              }
+            , Cmd.none
+            , Effect.none
+            )
+
+        UpdatedEditSentenceForm formInput ->
+            ( { model
+                | editSentenceForm =
+                    let
+                        form =
+                            model.editSentenceForm
+
+                        { sentence, newTag } =
+                            form
+                    in
+                    case formInput of
+                        WordField newWord ->
+                            { form | sentence = { sentence | word = newWord } }
+
+                        SentenceField newSentence ->
+                            { form
+                                | sentence =
+                                    { sentence | sentence = newSentence }
+                            }
+
+                        NewTagField newNewTag ->
+                            { form | newTag = newNewTag }
+
+                        TagAdded ->
+                            { form
+                                | sentence =
+                                    { sentence
+                                        | tags = sentence.tags ++ [ newTag ]
+                                    }
+                                , newTag = ""
+                            }
+
+                        TagRemoved tag ->
+                            { form
+                                | sentence =
+                                    { sentence
+                                        | tags =
+                                            List.filter
+                                                ((/=) tag)
+                                                sentence.tags
+                                    }
+                            }
+              }
+            , Cmd.none
+            , Effect.none
+            )
+
+        EditSentenceClose ->
+            let
+                form =
+                    model.editSentenceForm
+            in
+            ( { model
+                | editSentenceForm = { form | isOpen = False }
+              }
+            , Cmd.none
+            , Effect.none
+            )
+
+        DeleteSentenceClicked index ->
+            ( { model
+                | deleteSentenceForm =
+                    case model.getSentencesState of
+                        GetSentencesFetched (Ok sentences) ->
+                            sentences
+                                |> Array.fromList
+                                |> Array.get index
+                                |> Maybe.map
+                                    (\sentence ->
+                                        { isOpen = True
+                                        , index = index
+                                        , sentence = sentence
+                                        }
+                                    )
+                                |> Maybe.withDefault model.deleteSentenceForm
+
+                        _ ->
+                            model.deleteSentenceForm
+              }
+            , Cmd.none
+            , Effect.none
+            )
+
+        DeleteSentenceClose ->
+            let
+                form =
+                    model.deleteSentenceForm
+            in
+            ( { model | deleteSentenceForm = { form | isOpen = False } }
+            , Cmd.none
+            , Effect.none
+            )
+
+
+type alias AddPendingSentence =
     { word : String
     , sentence : String
     , tags : List String
@@ -374,7 +545,7 @@ type alias PendingSentence =
 
 
 addPendingSentenceRequest :
-    PendingSentence
+    AddPendingSentence
     -> Task.SheetsTask ()
 addPendingSentenceRequest { word, sentence, tags } =
     Task.platform Time.now
@@ -388,7 +559,7 @@ addPendingSentenceRequest { word, sentence, tags } =
                                 [ RequestString word
                                 , RequestString sentence
                                 , Sheets.tagsExtendedValue tags
-                                , Sheets.iso8601ExtendedValue time
+                                , Sheets.timestampExtendedValue time
                                 ]
                         , fields = "userEnteredValue"
                         }
@@ -442,24 +613,50 @@ addPendingSentenceRequest { word, sentence, tags } =
             )
 
 
-getPendingSentencesRequest : Task.SheetsTask (List Model.PendingSentence)
+getPendingSentencesRequest : Task.SheetsTask (List PendingSentence)
 getPendingSentencesRequest =
-    Sheets.getSubSheetDataRequest
-        [ { sheetId = Constants.subSheetId PendingSentences
-          , startRowIndex = Just 1
-          , endRowIndex = Nothing
-          , startColumnIndex = Just 0
-          , endColumnIndex = Just 4
-          }
+    Sheets.batchUpdateAndGetGridDataRequest
+        [ RequestDeleteRange
+            { range =
+                { sheetId = Constants.subSheetId Query
+                , startRowIndex = Just 0
+                , endRowIndex = Nothing
+                , startColumnIndex = Just 0
+                , endColumnIndex = Nothing
+                }
+            , dimension = RequestRows
+            }
+        , RequestUpdateCells
+            { rows =
+                requestRow
+                    [ RequestFormula <|
+                        "=QUERY("
+                            ++ Constants.subSheetName PendingSentences
+                            ++ "!A1:D,"
+                            ++ "\"SELECT * WHERE A <> '' ORDER BY D DESC\")"
+                    ]
+            , fields = "userEnteredValue"
+            , range =
+                { sheetId = Constants.subSheetId Query
+                , startRowIndex = Just 0
+                , endRowIndex = Just 1
+                , startColumnIndex = Just 0
+                , endColumnIndex = Just 1
+                }
+            }
         ]
-        |> Task.map (Model.fromGridData maybeConstructPendingSentence)
+        [ Constants.subSheetName Query ++ "!A2:D" ]
+        |> Task.map
+            (.updatedSpreadsheet
+                >> Model.fromGridData maybeConstructPendingSentence
+            )
 
 
 maybeConstructPendingSentence :
     List Sheets.ResponseCellData
-    -> Maybe Model.PendingSentence
+    -> Maybe PendingSentence
 maybeConstructPendingSentence =
-    constructFromList Model.PendingSentence
+    constructFromList PendingSentence
         >> field cellStringValue
         >> field cellStringValue
         >> field
@@ -468,15 +665,15 @@ maybeConstructPendingSentence =
                 >> Maybe.andThen Result.toMaybe
             )
         >> field
-            (cellStringValue
-                >> Maybe.map Iso8601.toTime
-                >> Maybe.andThen Result.toMaybe
+            (cellNumberValue
+                >> Maybe.map round
+                >> Maybe.map Time.millisToPosix
             )
         >> extract
 
 
 confirmBatchRequest :
-    { pendingSentences : List Model.PendingSentence
+    { pendingSentences : List PendingSentence
     , selectedSentences : Set Int
     , batchId : String
     }
@@ -511,7 +708,7 @@ confirmBatchRequest { pendingSentences, selectedSentences, batchId } =
                                         , RequestString sentence
                                         , Sheets.tagsExtendedValue tags
                                         , RequestString batchId
-                                        , Sheets.iso8601ExtendedValue time
+                                        , Sheets.timestampExtendedValue time
                                         ]
                                     )
                                 |> Sheets.requestRows
@@ -524,7 +721,7 @@ confirmBatchRequest { pendingSentences, selectedSentences, batchId } =
                                 |> List.map
                                     (\( _, { word } ) ->
                                         [ RequestString word
-                                        , Sheets.iso8601ExtendedValue time
+                                        , Sheets.timestampExtendedValue time
                                         ]
                                     )
                                 |> Sheets.requestRows
@@ -539,7 +736,7 @@ confirmBatchRequest { pendingSentences, selectedSentences, batchId } =
                                         [ RequestString word
                                         , RequestString sentence
                                         , Sheets.tagsExtendedValue tags
-                                        , Sheets.iso8601ExtendedValue time
+                                        , Sheets.timestampExtendedValue time
                                         ]
                                     )
                                 |> Sheets.requestRows
@@ -660,8 +857,213 @@ view model =
                     ]
                     [ pendingSentencesTabView model ]
                 ]
+            , editSentenceDialogView model
+            , deleteSentenceDialogView model
             ]
     }
+
+
+editSentenceDialogView : Model -> Html Msg
+editSentenceDialogView model =
+    modalDialog
+        model.editSentenceForm.isOpen
+        EditSentenceClose
+        [ classes
+            [ "dialog"
+            , "w-full"
+            , "sm:max-w-[425px]"
+            , "max-h-[612px]"
+            ]
+        ]
+        [ article []
+            [ header []
+                [ h2 [] [ text "Edit sentence" ]
+                ]
+            , section []
+                [ form [ classes [ "form", "grid", "gap-4" ] ] <|
+                    [ div [ classes [ "grid", "gap-3" ] ]
+                        [ label [ for "edit-sentence-word" ]
+                            [ text "Word" ]
+                        , input
+                            [ type_ "text"
+                            , id "edit-sentence-word"
+                            , value model.editSentenceForm.sentence.word
+                            , onInput (UpdatedEditSentenceForm << WordField)
+                            ]
+                            []
+                        ]
+                    , div [ classes [ "grid", "gap-3" ] ]
+                        [ label [ for "edit-sentence-sentence" ]
+                            [ text "Sentence" ]
+                        , textarea
+                            [ id "edit-sentence-sentence"
+                            , onInput
+                                (UpdatedEditSentenceForm << SentenceField)
+                            ]
+                            [ text model.editSentenceForm.sentence.sentence
+                            ]
+                        ]
+                    , div [ classes [ "grid", "gap-3" ] ] <|
+                        List.concat
+                            [ [ label [ for "edit-sentence-tags" ]
+                                    [ text "Tags" ]
+                              ]
+                            , case model.editSentenceForm.sentence.tags of
+                                [] ->
+                                    []
+
+                                rest ->
+                                    [ div
+                                        [ classes
+                                            [ "flex"
+                                            , "flex-wrap"
+                                            , "gap-1"
+                                            ]
+                                        ]
+                                      <|
+                                        List.map
+                                            (\tag ->
+                                                button
+                                                    [ class "badge-outline"
+                                                    , type_ "button"
+                                                    , onClick
+                                                        (UpdatedEditSentenceForm
+                                                            (TagRemoved tag)
+                                                        )
+                                                    ]
+                                                    [ text tag
+                                                    , crossIcon []
+                                                    ]
+                                            )
+                                            rest
+                                    ]
+                            , [ div [ class "flex gap-2" ]
+                                    [ input
+                                        [ type_ "text"
+                                        , id "edit-sentence-tags"
+                                        , placeholder "Add a tag..."
+                                        , value model.editSentenceForm.newTag
+                                        , onInput
+                                            (UpdatedEditSentenceForm
+                                                << NewTagField
+                                            )
+                                        ]
+                                        []
+                                    , button
+                                        [ class "btn-icon-outline"
+                                        , type_ "button"
+                                        , disabled <|
+                                            let
+                                                tags =
+                                                    model.editSentenceForm.sentence.tags
+
+                                                newTag =
+                                                    model.editSentenceForm.newTag
+                                            in
+                                            String.isEmpty newTag
+                                                || List.any ((==) newTag) tags
+                                        , onClick
+                                            (UpdatedEditSentenceForm TagAdded)
+                                        ]
+                                        [ plusIcon []
+                                        ]
+                                    ]
+                              ]
+                            ]
+                    ]
+                ]
+            , footer []
+                [ button
+                    [ class "btn-outline"
+                    , onClick EditSentenceClose
+                    ]
+                    [ text "Cancel" ]
+                , button [ class "btn" ]
+                    [ text "Save changes" ]
+                ]
+            , button
+                [ type_ "button"
+                , ariaLabel "Close dialog"
+                , onClick EditSentenceClose
+                ]
+                [ crossIcon [] ]
+            ]
+        ]
+
+
+deleteSentenceDialogView : Model -> Html Msg
+deleteSentenceDialogView model =
+    modalDialog
+        model.deleteSentenceForm.isOpen
+        DeleteSentenceClose
+        [ classes
+            [ "dialog"
+            , "w-full"
+            , "sm:max-w-[425px]"
+            , "max-h-[612px]"
+            ]
+        ]
+        [ article []
+            [ header [] <|
+                [ h2 [] [ text "Delete sentence" ]
+                , p [] [ text "Are you sure you want to delete this sentence?" ]
+                ]
+            , section []
+                [ sentenceView [] model.deleteSentenceForm.sentence ]
+            , footer []
+                [ button
+                    [ class "btn-outline"
+                    , onClick DeleteSentenceClose
+                    ]
+                    [ text "Cancel" ]
+                , button [ class "btn-destructive" ]
+                    [ text "Delete permanently" ]
+                ]
+            , button
+                [ type_ "button"
+                , ariaLabel "Close dialog"
+                , onClick DeleteSentenceClose
+                ]
+                [ crossIcon [] ]
+            ]
+        ]
+
+
+sentenceView : List (Attribute msg) -> PendingSentence -> Html msg
+sentenceView attributes sentence =
+    div (classes [ "grid", "gap-2" ] :: attributes) <|
+        List.concat
+            [ [ h2
+                    [ classes
+                        [ "text-sm"
+                        , "leading-none"
+                        , "font-medium"
+                        , "[&:first-letter]:capitalize"
+                        ]
+                    ]
+                    [ text sentence.word ]
+              , p
+                    [ classes
+                        [ "text-sm"
+                        , "[&:first-letter]:capitalize"
+                        ]
+                    ]
+                    [ text sentence.sentence ]
+              ]
+            , case sentence.tags of
+                [] ->
+                    []
+
+                rest ->
+                    [ p
+                        [ classes
+                            [ "text-sm"
+                            , "text-muted-foreground"
+                            ]
+                        ]
+                        [ text <| String.join ", " rest ]
+                    ]
+            ]
 
 
 onClick : msg -> Attribute msg
@@ -762,7 +1164,9 @@ dictionaryView maybeWord definitionState =
             List.concat
                 [ [ div [ classes [ "card", "p-1", "mt-4" ] ]
                         [ header [ classes [ "p-0", "flex", "justify-center" ] ]
-                            [ p [ class "uppercase" ] [ text word ] ]
+                            [ p [ class "[&:first-letter]:capitalize" ]
+                                [ text word ]
+                            ]
                         ]
                   ]
                 , case definitionState of
@@ -815,7 +1219,7 @@ dictionaryView maybeWord definitionState =
 notFoundView : Html Msg
 notFoundView =
     div [ classes [ "alert-destructive", "mt-4" ] ]
-        [ warnIcon []
+        [ warningCircleIcon []
         , h2 [] [ text "Unable to find word definition." ]
         ]
 
@@ -940,7 +1344,7 @@ pendingSentencesTabView model =
 
                 GetSentencesFetched (Err err) ->
                     div [ classes [ "alert-destructive" ] ]
-                        [ warnIcon []
+                        [ warningCircleIcon []
                         , h2 [] [ text "Unable to fetch pending sentences." ]
                         , section [] [ text <| Task.errorToMessage err ]
                         ]
@@ -1006,7 +1410,7 @@ pendingSentenceSkeletonView wordSize sentenceSize =
         ]
 
 
-pendingSentenceView : Model -> Int -> Model.PendingSentence -> Html Msg
+pendingSentenceView : Model -> Int -> PendingSentence -> Html Msg
 pendingSentenceView model index sentence =
     label
         [ classes
@@ -1044,22 +1448,21 @@ pendingSentenceView model index sentence =
              ]
             )
             []
-        , div [ class "grid gap-2" ] <|
-            List.concat
-                [ [ h2 [ classes [ "text-sm", "leading-none", "font-medium" ] ]
-                        [ text sentence.word ]
-                  , p [ classes [ "text-sm" ] ]
-                        [ text sentence.sentence ]
-                  ]
-                , case sentence.tags of
-                    [] ->
-                        []
-
-                    rest ->
-                        [ p [ classes [ "text-muted-foreground" ] ]
-                            [ text <| String.join ", " rest ]
-                        ]
+        , div [ classes [ "grow-1", "grid", "gap-2" ] ] <|
+            [ div [ classes [ "flex", "items-center" ] ]
+                [ sentenceView [ class "grow-1" ] sentence
+                , button
+                    [ class "btn-sm-icon-ghost"
+                    , onClick (EditSentenceClicked index)
+                    ]
+                    [ squarePenIcon [] ]
+                , button
+                    [ class "btn-sm-icon-ghost text-(--destructive)"
+                    , onClick (DeleteSentenceClicked index)
+                    ]
+                    [ trashIcon [] ]
                 ]
+            ]
         ]
 
 
