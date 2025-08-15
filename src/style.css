@@ -121,3 +121,9 @@
     --shadow-2xl: 0px 2px 5px 0px hsl(0 0% 0% / 1.5);
   }
 }
+
+html {
+  position: fixed;
+  overflow: hidden;
+  width: 100vw;
+}
