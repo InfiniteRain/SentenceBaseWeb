@@ -102,6 +102,7 @@ type alias Model =
     , definitionState : DefinitionState
     , addSentenceState : AddSentenceState
     , editSentenceState : EditSentenceState
+    , deleteSentenceState : DeleteSentenceState
     , getSentencesState : GetSentencesState
     , selectedSentences : Set Int
     , confirmBatchState : ConfirmBatchState
@@ -130,6 +131,11 @@ type AddSentenceState
 type EditSentenceState
     = EditSentenceIdle
     | EditSentenceLoading
+
+
+type DeleteSentenceState
+    = DeleteSentenceIdle
+    | DeleteSentenceLoading
 
 
 type GetSentencesState
@@ -175,6 +181,7 @@ init session =
       , definitionState = DefinitionWordNotSelected
       , addSentenceState = AddSentenceIdle
       , editSentenceState = EditSentenceIdle
+      , deleteSentenceState = DeleteSentenceIdle
       , getSentencesState = GetSentencesStale
       , selectedSentences = Set.empty
       , confirmBatchState = ConfirmBatchIdle
@@ -233,6 +240,8 @@ type Msg
     | UpdatedEditSentenceForm EditSentenceInput
     | DeleteSentenceClicked Int
     | DeleteSentenceClose
+    | DeleteSentenceConfirmClicked
+    | GotDeleteSentenceResponse (Result Task.Error ())
 
 
 type EditSentenceInput
@@ -659,6 +668,56 @@ update msg model =
             , Effect.none
             )
 
+        DeleteSentenceConfirmClicked ->
+            ( { model | deleteSentenceState = DeleteSentenceLoading }
+            , Cmd.none
+            , removePendingSentenceRequest
+                model.deleteSentenceForm.sentence
+                |> Task.sheetsAttempt GotDeleteSentenceResponse
+                |> Effect.google
+            )
+
+        GotDeleteSentenceResponse (Ok ()) ->
+            let
+                form =
+                    model.deleteSentenceForm
+            in
+            ( { model
+                | deleteSentenceState = DeleteSentenceIdle
+                , deleteSentenceForm = { form | isOpen = False }
+                , getSentencesState =
+                    case model.getSentencesState of
+                        GetSentencesFetched (Ok sentences) ->
+                            (GetSentencesFetched << Ok)
+                                (sentences
+                                    |> List.indexedMap
+                                        (\index sentence ->
+                                            if index == form.index then
+                                                Nothing
+
+                                            else
+                                                Just sentence
+                                        )
+                                    |> List.filterMap identity
+                                )
+
+                        _ ->
+                            model.getSentencesState
+              }
+            , Cmd.none
+            , Effect.none
+            )
+
+        GotDeleteSentenceResponse (Err err) ->
+            ( { model | deleteSentenceState = DeleteSentenceIdle }
+            , Cmd.none
+            , Effect.toast
+                { category = Toast.Error
+                , title = "Failed to delete sentence"
+                , description = Task.errorToMessage err
+                }
+            )
+
 
 type alias AddPendingSentence =
     { word : String
@@ -937,6 +996,66 @@ editPendingSentenceRequest from to =
                     , Sheets.timestampExtendedValue to.addedAt
                     ]
             , fields = "userEnteredValue"
+            }
+        , RequestDeleteRange
+            { range =
+                { sheetId = Constants.subSheetId PendingSentences
+                , startRowIndex = Just 1
+                , endRowIndex = Just 2
+                , startColumnIndex = Just 0
+                , endColumnIndex = Just 4
+                }
+            , dimension = RequestRows
+            }
+        ]
+
+
+removePendingSentenceRequest :
+    PendingSentence
+    -> Task.SheetsTask ()
+removePendingSentenceRequest sentence =
+    Sheets.batchUpdateRequest
+        [ RequestInsertDimension
+            { range =
+                { sheetId = Constants.subSheetId PendingSentences
+                , dimension = RequestRows
+                , startIndex = 1
+                , endIndex = 2
+                }
+            , inheritFromBefore = True
+            }
+        , RequestUpdateCells
+            { rows =
+                Sheets.requestRow
+                    [ RequestString sentence.word
+                    , RequestString sentence.sentence
+                    , Sheets.tagsExtendedValue sentence.tags
+                    , Sheets.timestampExtendedValue sentence.addedAt
+                    ]
+            , fields = "userEnteredValue"
+            , range =
+                { sheetId = Constants.subSheetId PendingSentences
+                , startRowIndex = Just 1
+                , endRowIndex = Just 2
+                , startColumnIndex = Just 0
+                , endColumnIndex = Just 4
+                }
+            }
+        , RequestDeleteDuplicates
+            { range =
+                { sheetId = Constants.subSheetId PendingSentences
+                , startRowIndex = Just 1
+                , endRowIndex = Nothing
+                , startColumnIndex = Just 0
+                , endColumnIndex = Just 4
+                }
+            , comparisonColumns =
+                [ { sheetId = Constants.subSheetId PendingSentences
+                  , dimension = RequestColumns
+                  , startIndex = 0
+                  , endIndex = 4
+                  }
+                ]
             }
         , RequestDeleteRange
             { range =
@@ -1275,10 +1394,26 @@ deleteSentenceDialogView model =
                 [ button
                     [ class "btn-outline"
                     , onClick DeleteSentenceClose
+                    , disabled
+                        (model.deleteSentenceState == DeleteSentenceLoading)
                     ]
                     [ text "Cancel" ]
-                , button [ class "btn-destructive" ]
-                    [ text "Delete permanently" ]
+                , button
+                    [ class "btn-destructive"
+                    , onClick DeleteSentenceConfirmClicked
+                    , disabled
+                        (model.deleteSentenceState == DeleteSentenceLoading)
+                    ]
+                  <|
+                    List.concat
+                        [ case model.deleteSentenceState of
+                            DeleteSentenceIdle ->
+                                []
+
+                            DeleteSentenceLoading ->
+                                [ loadingIcon [] ]
+                        , [ text "Delete permanently" ]
+                        ]
                 ]
             , button
                 [ type_ "button"
