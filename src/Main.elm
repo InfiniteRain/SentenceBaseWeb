@@ -858,7 +858,6 @@ headerView =
                 [ ariaLabel "Toggle sidebar"
                 , dataAlign "start"
                 , dataSide "bottom"
-                , dataTooltip "Toggle sidebar"
                 , classes
                     [ "btn-sm-icon-ghost"
                     , "mr-auto"
