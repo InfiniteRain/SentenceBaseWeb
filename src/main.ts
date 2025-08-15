@@ -140,58 +140,6 @@ const getRandomInts = (n: number) => {
   return Array.from(randInts);
 };
 
-// https://discourse.elm-lang.org/t/native-html-element-dialog-modal-opening-closing/9232
-customElements.define(
-  "modal-dialog",
-  class extends HTMLElement {
-    static observedAttributes = ["open"];
-    #isConnected = false;
-
-    connectedCallback() {
-      this.#setContent();
-      this.#isConnected = true;
-    }
-
-    attributeChangedCallback() {
-      if (this.#isConnected) {
-        this.#setContent();
-      }
-    }
-
-    #setContent() {
-      const isOpen = this.getAttribute("open") === "true";
-      const dialog = this.querySelector("dialog") as
-        | HTMLDialogElement
-        | undefined;
-      const closeAttempt = new CustomEvent("close-attempt", {
-        bubbles: true,
-        cancelable: false,
-      });
-
-      if (dialog) {
-        if (isOpen) {
-          dialog.onclick = (event) => {
-            if (event.currentTarget === event.target) {
-              this.dispatchEvent(closeAttempt);
-            }
-          };
-
-          dialog.onkeydown = (event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              this.dispatchEvent(closeAttempt);
-            }
-          };
-
-          dialog.showModal();
-        } else {
-          dialog.close();
-        }
-      }
-    }
-  },
-);
-
 const randomInts = getRandomInts(4);
 
 Elm.Main.init({

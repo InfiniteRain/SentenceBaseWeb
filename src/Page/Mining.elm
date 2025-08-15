@@ -100,6 +100,7 @@ type alias Model =
     , selectedWord : Maybe String
     , definitionState : DefinitionState
     , addSentenceState : AddSentenceState
+    , editSentenceState : EditSentenceState
     , getSentencesState : GetSentencesState
     , selectedSentences : Set Int
     , confirmBatchState : ConfirmBatchState
@@ -123,6 +124,11 @@ type DefinitionState
 type AddSentenceState
     = AddSentenceIdle
     | AddSentenceLoading
+
+
+type EditSentenceState
+    = EditSentenceIdle
+    | EditSentenceLoading
 
 
 type GetSentencesState
@@ -160,6 +166,7 @@ init session =
       , selectedWord = Nothing
       , definitionState = DefinitionWordNotSelected
       , addSentenceState = AddSentenceIdle
+      , editSentenceState = EditSentenceIdle
       , getSentencesState = GetSentencesStale
       , selectedSentences = Set.empty
       , confirmBatchState = ConfirmBatchIdle
@@ -209,6 +216,8 @@ type Msg
     | GotConfirmBatchResponse (Result Task.Error ())
     | EditSentenceClicked Int
     | EditSentenceClose
+    | EditSentenceConfirmClicked
+    | GotEditSentenceResponse (Result Task.Error ())
     | UpdatedEditSentenceForm EditSentenceInput
     | DeleteSentenceClicked Int
     | DeleteSentenceClose
@@ -470,7 +479,9 @@ update msg model =
                             { form
                                 | sentence =
                                     { sentence
-                                        | tags = sentence.tags ++ [ newTag ]
+                                        | tags =
+                                            sentence.tags
+                                                ++ [ String.trim newTag ]
                                     }
                                 , newTag = ""
                             }
@@ -488,6 +499,71 @@ update msg model =
               }
             , Cmd.none
             , Effect.none
+            )
+
+        EditSentenceConfirmClicked ->
+            let
+                maybeFrom =
+                    case model.getSentencesState of
+                        GetSentencesFetched (Ok sentences) ->
+                            sentences
+                                |> Array.fromList
+                                |> Array.get model.editSentenceForm.index
+
+                        _ ->
+                            Nothing
+            in
+            case maybeFrom of
+                Just from ->
+                    ( { model | editSentenceState = EditSentenceLoading }
+                    , Cmd.none
+                    , editPendingSentenceRequest
+                        from
+                        model.editSentenceForm.sentence
+                        |> Task.sheetsAttempt GotEditSentenceResponse
+                        |> Effect.google
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none, Effect.none )
+
+        GotEditSentenceResponse (Ok ()) ->
+            let
+                form =
+                    model.editSentenceForm
+            in
+            ( { model
+                | editSentenceState = EditSentenceIdle
+                , editSentenceForm = { form | isOpen = False }
+                , getSentencesState =
+                    case model.getSentencesState of
+                        GetSentencesFetched (Ok sentences) ->
+                            (GetSentencesFetched << Ok) <|
+                                List.indexedMap
+                                    (\index sentence ->
+                                        if index == model.editSentenceForm.index then
+                                            model.editSentenceForm.sentence
+
+                                        else
+                                            sentence
+                                    )
+                                    sentences
+
+                        _ ->
+                            model.getSentencesState
+              }
+            , Cmd.none
+            , Effect.none
+            )
+
+        GotEditSentenceResponse (Err err) ->
+            ( { model | editSentenceState = EditSentenceIdle }
+            , Cmd.none
+            , Effect.toast
+                { category = Toast.Error
+                , title = "Failed to edit sentence"
+                , description = Task.errorToMessage err
+                }
             )
 
         EditSentenceClose ->
@@ -756,6 +832,78 @@ confirmBatchRequest { pendingSentences, selectedSentences, batchId } =
             )
 
 
+editPendingSentenceRequest :
+    PendingSentence
+    -> PendingSentence
+    -> Task.SheetsTask ()
+editPendingSentenceRequest from to =
+    Sheets.batchUpdateRequest
+        [ RequestInsertDimension
+            { range =
+                { sheetId = Constants.subSheetId PendingSentences
+                , dimension = RequestRows
+                , startIndex = 1
+                , endIndex = 2
+                }
+            , inheritFromBefore = True
+            }
+        , RequestUpdateCells
+            { rows =
+                Sheets.requestRow
+                    [ RequestString from.word
+                    , RequestString from.sentence
+                    , Sheets.tagsExtendedValue from.tags
+                    , Sheets.timestampExtendedValue from.addedAt
+                    ]
+            , fields = "userEnteredValue"
+            , range =
+                { sheetId = Constants.subSheetId PendingSentences
+                , startRowIndex = Just 1
+                , endRowIndex = Just 2
+                , startColumnIndex = Just 0
+                , endColumnIndex = Just 4
+                }
+            }
+        , RequestDeleteDuplicates
+            { range =
+                { sheetId = Constants.subSheetId PendingSentences
+                , startRowIndex = Just 1
+                , endRowIndex = Nothing
+                , startColumnIndex = Just 0
+                , endColumnIndex = Just 4
+                }
+            , comparisonColumns =
+                [ { sheetId = Constants.subSheetId PendingSentences
+                  , dimension = RequestColumns
+                  , startIndex = 0
+                  , endIndex = 4
+                  }
+                ]
+            }
+        , RequestAppendCells
+            { sheetId = Constants.subSheetId PendingSentences
+            , rows =
+                Sheets.requestRow
+                    [ RequestString to.word
+                    , RequestString to.sentence
+                    , Sheets.tagsExtendedValue to.tags
+                    , Sheets.timestampExtendedValue to.addedAt
+                    ]
+            , fields = "userEnteredValue"
+            }
+        , RequestDeleteRange
+            { range =
+                { sheetId = Constants.subSheetId PendingSentences
+                , startRowIndex = Just 1
+                , endRowIndex = Just 2
+                , startColumnIndex = Just 0
+                , endColumnIndex = Just 4
+                }
+            , dimension = RequestRows
+            }
+        ]
+
+
 isBatchSelectionReady : Model -> Bool
 isBatchSelectionReady model =
     case model.getSentencesState of
@@ -961,7 +1109,9 @@ editSentenceDialogView model =
                                                     model.editSentenceForm.newTag
                                             in
                                             String.isEmpty newTag
-                                                || List.any ((==) newTag) tags
+                                                || List.any
+                                                    ((==) (String.trim newTag))
+                                                    tags
                                         , onClick
                                             (UpdatedEditSentenceForm TagAdded)
                                         ]
@@ -976,10 +1126,24 @@ editSentenceDialogView model =
                 [ button
                     [ class "btn-outline"
                     , onClick EditSentenceClose
+                    , disabled (model.editSentenceState == EditSentenceLoading)
                     ]
                     [ text "Cancel" ]
-                , button [ class "btn" ]
-                    [ text "Save changes" ]
+                , button
+                    [ class "btn"
+                    , onClick EditSentenceConfirmClicked
+                    , disabled (model.editSentenceState == EditSentenceLoading)
+                    ]
+                  <|
+                    List.concat
+                        [ case model.editSentenceState of
+                            EditSentenceIdle ->
+                                []
+
+                            EditSentenceLoading ->
+                                [ loadingIcon [] ]
+                        , [ text "Save changes" ]
+                        ]
                 ]
             , button
                 [ type_ "button"
@@ -1145,11 +1309,12 @@ miningTabView model =
                 , onClick MineClicked
                 ]
                 (List.concat
-                    [ if model.addSentenceState == AddSentenceLoading then
-                        [ loadingIcon [] ]
+                    [ case model.addSentenceState of
+                        AddSentenceIdle ->
+                            []
 
-                      else
-                        []
+                        AddSentenceLoading ->
+                            [ loadingIcon [] ]
                     , [ text "Mine Sentence" ]
                     ]
                 )

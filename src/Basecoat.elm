@@ -22,8 +22,7 @@ module Basecoat exposing
 
 import Html exposing (Attribute, Html, div, node)
 import Html.Attributes exposing (attribute, classList)
-import Html.Events exposing (on)
-import Json.Decode as Decode
+import Html.Events exposing (onClick)
 
 
 
@@ -125,34 +124,31 @@ classes =
 -- DIALOG
 
 
-onCloseAttempt : msg -> Attribute msg
-onCloseAttempt message =
-    on "close-attempt" (Decode.succeed message)
-
-
 modalDialog : Bool -> msg -> List (Attribute msg) -> List (Html msg) -> Html msg
 modalDialog isOpen msg attributes children =
-    node "modal-dialog"
-        [ attribute "open" (boolToString isOpen)
-        , onCloseAttempt msg
-        ]
-        [ node "dialog"
-            attributes
-            (div
-                [ classes
-                    [ "opacity-0"
-                    , "absolute"
-                    , "top-0"
-                    , "left-0"
-                    , "w-full"
-                    , "h-full"
-                    , "-z-10"
-                    ]
+    node "dialog"
+        (attributes
+            ++ (if isOpen then
+                    [ attribute "open" "" ]
+
+                else
+                    []
+               )
+        )
+        (div
+            [ classes
+                [ "w-screen"
+                , "h-screen"
+                , "absolute"
+                , "bg-black"
+                , "opacity-50"
+                , "z-15"
                 ]
-                []
-                :: children
-            )
-        ]
+            , onClick msg
+            ]
+            []
+            :: children
+        )
 
 
 

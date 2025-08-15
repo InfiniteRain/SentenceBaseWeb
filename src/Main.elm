@@ -848,7 +848,6 @@ headerView =
             , "items-center"
             , "gap-2"
             , "border-b"
-            , "z-10"
             ]
         ]
         [ div
