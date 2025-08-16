@@ -75,6 +75,7 @@ import Icon.Info exposing (infoIcon)
 import Icon.Loading exposing (loadingIcon)
 import Icon.Plus exposing (plusIcon)
 import Icon.SquarePen exposing (squarePenIcon)
+import Icon.Tag exposing (tagIcon)
 import Icon.Trash exposing (trashIcon)
 import Icon.WarningCircle exposing (warningCircleIcon)
 import Json.Decode as Decode
@@ -1274,21 +1275,26 @@ editSentenceDialogView model =
                                         [ classes
                                             [ "flex"
                                             , "flex-wrap"
-                                            , "gap-1"
+                                            , "gap-2"
                                             ]
                                         ]
                                       <|
                                         List.map
                                             (\tag ->
                                                 button
-                                                    [ class "badge-outline"
+                                                    [ classes
+                                                        [ "badge"
+                                                        , "py-0"
+                                                        , "px-1"
+                                                        ]
                                                     , type_ "button"
                                                     , onClick
                                                         (UpdatedEditSentenceForm
                                                             (TagRemoved tag)
                                                         )
                                                     ]
-                                                    [ text tag
+                                                    [ tagIcon []
+                                                    , text tag
                                                     , crossIcon []
                                                     ]
                                             )
@@ -1425,7 +1431,7 @@ deleteSentenceDialogView model =
         ]
 
 
-sentenceView : List (Attribute msg) -> PendingSentence -> Html msg
+sentenceView : List (Attribute Msg) -> PendingSentence -> Html Msg
 sentenceView attributes sentence =
     div (classes [ "grid", "gap-2" ] :: attributes) <|
         List.concat
@@ -1451,13 +1457,18 @@ sentenceView attributes sentence =
                     []
 
                 rest ->
-                    [ p
-                        [ classes
-                            [ "text-sm"
-                            , "text-muted-foreground"
-                            ]
+                    [ div
+                        [ classes [ "flex", "flex-wrap", "gap-2" ]
                         ]
-                        [ text <| String.join ", " rest ]
+                      <|
+                        List.map
+                            (\tag ->
+                                div [ classes [ "badge", "py-0", "px-1" ] ]
+                                    [ tagIcon []
+                                    , text tag
+                                    ]
+                            )
+                            rest
                     ]
             ]
 
@@ -1530,7 +1541,14 @@ miningTabView model =
                 ]
                 [ text "Click to paste and analyze a sentence!" ]
         , div [ classes [ "grow-0", "shrink-1", "mt-4" ] ]
-            [ button
+            [ div [ classes [ "flex", "flex-wrap", "gap-2", "mb-4" ] ]
+                [ button
+                    [ classes [ "badge" ]
+                    , type_ "button"
+                    ]
+                    [ text "Edit tags..." ]
+                ]
+            , button
                 [ classes [ "btn-primary", "w-full", "mb-4" ]
                 , disabled
                     (model.selectedWord
@@ -1547,7 +1565,7 @@ miningTabView model =
 
                         AddSentenceLoading ->
                             [ loadingIcon [] ]
-                    , [ text "Mine Sentence" ]
+                    , [ text "Mine sentence" ]
                     ]
                 )
             ]
