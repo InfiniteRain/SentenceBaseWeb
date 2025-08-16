@@ -1630,7 +1630,7 @@ definitionsView : Int -> Wiktionary.Definitions -> Html Msg
 definitionsView index (Definitions definitions) =
     div [ classes [ "card", "p-3", "mt-4", "gap-0" ] ]
         [ header [ classes [ "p-0", "flex", "justify-center" ] ]
-            [ text ("Etimology " ++ String.fromInt (index + 1)) ]
+            [ text ("Etymology " ++ String.fromInt (index + 1)) ]
         , section [ class "pl-0 pr-0" ]
             [ ul [ classes [ "list-decimal", "list-inside" ] ] <|
                 List.map
@@ -1679,7 +1679,7 @@ formUsagesView { word, usages } =
                     [ div [ classes [ "flex", "flex-col", "gap-0.5" ] ]
                         [ p [ class "leading-normal" ]
                             [ text <|
-                                "Etimology "
+                                "Etymology "
                                     ++ String.fromInt (definitionIndex + 1)
                                     ++ " for "
                                     ++ word
