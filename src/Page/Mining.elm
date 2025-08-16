@@ -97,119 +97,133 @@ import Toast
 type alias Model =
     { session : Session
     , tab : Tab
-    , sentence : String
-    , sentenceWords : List String
-    , selectedWord : Maybe String
-    , definitionState : DefinitionState
-    , addSentenceState : AddSentenceState
-    , editSentenceState : EditSentenceState
-    , deleteSentenceState : DeleteSentenceState
-    , getSentencesState : GetSentencesState
-    , selectedSentences : Set Int
-    , confirmBatchState : ConfirmBatchState
-    , editSentenceForm : EditSentenceForm
-    , deleteSentenceForm : DeleteSentenceForm
+    , mining : MiningState
+    , overview : OverviewState
     }
 
 
 type Tab
-    = MiningTab
-    | PendingSentencesTab
+    = TabMining
+    | TabOverview
+
+
+type alias MiningState =
+    { sentence : String
+    , words : List String
+    , selected : Maybe String
+    , definitionState : DefinitionState
+    , addState : AddState
+    }
 
 
 type DefinitionState
     = DefinitionWordNotSelected
     | DefinitionLoading
-    | DefinitionFetched Usages
+    | DefinitionFinished Usages
     | DefinitionNotFound
 
 
-type AddSentenceState
-    = AddSentenceIdle
-    | AddSentenceLoading
+type AddState
+    = AddIdle
+    | AddLoading
 
 
-type EditSentenceState
-    = EditSentenceIdle
-    | EditSentenceLoading
+type alias OverviewState =
+    { selected : Set Int
+    , editForm : EditForm
+    , deleteForm : DeleteForm
+    , getState : GetState
+    , editState : EditState
+    , deleteState : DeleteState
+    , confirmState : ConfirmState
+    }
 
 
-type DeleteSentenceState
-    = DeleteSentenceIdle
-    | DeleteSentenceLoading
-
-
-type GetSentencesState
-    = GetSentencesStale
-    | GetSentencesLoading
-    | GetSentencesFetched (Result Task.Error (List PendingSentence))
-
-
-type ConfirmBatchState
-    = ConfirmBatchIdle
-    | ConfirmBatchLoading
-
-
-type alias EditSentenceForm =
+type alias EditForm =
     { isOpen : Bool
     , index : Int
     , sentence : PendingSentence
     , newTag : String
-    , validation : EditSentenceFormValidation
+    , validation : EditFormValidation
     }
 
 
-type alias EditSentenceFormValidation =
+type alias EditFormValidation =
     { word : Maybe String
     , sentence : Maybe String
     }
 
 
-type alias DeleteSentenceForm =
+type alias DeleteForm =
     { isOpen : Bool
     , index : Int
     , sentence : PendingSentence
     }
 
 
+type GetState
+    = GetStale
+    | GetLoading
+    | GetFinished (Result Task.Error (List PendingSentence))
+
+
+type EditState
+    = EditIdle
+    | EditLoading
+
+
+type DeleteState
+    = DeleteIdle
+    | DeleteLoading
+
+
+type ConfirmState
+    = ConfirmIdle
+    | ConfirmLoading
+
+
 init : Session -> ( Model, Cmd Msg, Effect Msg )
 init session =
     ( { session = session
-      , tab = MiningTab
-      , sentence = ""
-      , sentenceWords = []
-      , selectedWord = Nothing
-      , definitionState = DefinitionWordNotSelected
-      , addSentenceState = AddSentenceIdle
-      , editSentenceState = EditSentenceIdle
-      , deleteSentenceState = DeleteSentenceIdle
-      , getSentencesState = GetSentencesStale
-      , selectedSentences = Set.empty
-      , confirmBatchState = ConfirmBatchIdle
-      , editSentenceForm =
-            { isOpen = False
-            , index = 0
-            , sentence =
-                { word = ""
-                , sentence = ""
-                , tags = []
-                , addedAt = Time.millisToPosix 0
-                }
-            , newTag = ""
-            , validation =
-                { word = Nothing
-                , sentence = Nothing
-                }
+      , tab = TabMining
+      , mining =
+            { sentence = ""
+            , words = []
+            , selected = Nothing
+            , definitionState = DefinitionWordNotSelected
+            , addState = AddIdle
             }
-      , deleteSentenceForm =
-            { isOpen = False
-            , index = 0
-            , sentence =
-                { word = ""
-                , sentence = ""
-                , tags = []
-                , addedAt = Time.millisToPosix 0
+      , overview =
+            { selected = Set.empty
+            , editForm =
+                { isOpen = False
+                , index = 0
+                , sentence =
+                    { word = ""
+                    , sentence = ""
+                    , tags = []
+                    , addedAt = Time.millisToPosix 0
+                    }
+                , newTag = ""
+                , validation =
+                    { word = Nothing
+                    , sentence = Nothing
+                    }
                 }
+            , deleteForm =
+                { isOpen = False
+                , index = 0
+                , sentence =
+                    { word = ""
+                    , sentence = ""
+                    , tags = []
+                    , addedAt = Time.millisToPosix 0
+                    }
+                }
+            , getState = GetStale
+            , editState = EditIdle
+            , deleteState = DeleteIdle
+            , confirmState = ConfirmIdle
             }
       }
     , Cmd.none
@@ -226,26 +240,26 @@ type Msg
     | BodyClicked
     | ClipboardUpdated (TaskPort.Result String)
     | WordSelected String
-    | DefinitionFetchedResponse (Result Http.Error Wiktionary.Usages)
+    | DefinitionFetched (Result Http.Error Wiktionary.Usages)
     | MineClicked
-    | GotAddPendingSentenceResponse (Result Task.Error ())
-    | GotSentencesResponse (Result Task.Error (List PendingSentence))
+    | AddFetched (Result Task.Error ())
+    | GetFetched (Result Task.Error (List PendingSentence))
     | SentenceChecked Int
-    | ConfirmBatchClicked
+    | BatchConfirmClicked
     | UuidReceived String
-    | GotConfirmBatchResponse (Result Task.Error ())
-    | EditSentenceClicked Int
-    | EditSentenceClose
-    | EditSentenceConfirmClicked
-    | GotEditSentenceResponse (Result Task.Error ())
-    | UpdatedEditSentenceForm EditSentenceInput
-    | DeleteSentenceClicked Int
-    | DeleteSentenceClose
-    | DeleteSentenceConfirmClicked
-    | GotDeleteSentenceResponse (Result Task.Error ())
+    | BatchFetched (Result Task.Error ())
+    | EditClicked Int
+    | EditFormUpdated EditFormInput
+    | EditDialogClosed
+    | EditConfirmClicked
+    | EditFetched (Result Task.Error ())
+    | DeleteClicked Int
+    | DeleteDialogClosed
+    | DeleteConfirmClicked
+    | DeleteFetched (Result Task.Error ())
 
 
-type EditSentenceInput
+type EditFormInput
     = WordField String
     | SentenceField String
     | NewTagField String
@@ -254,26 +268,27 @@ type EditSentenceInput
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Effect Msg )
-update msg model =
+update msg ({ mining, overview } as model) =
     case msg of
-        TabClicked MiningTab ->
-            ( { model | tab = MiningTab }, Cmd.none, Effect.none )
+        TabClicked TabMining ->
+            ( { model | tab = TabMining }, Cmd.none, Effect.none )
 
-        TabClicked PendingSentencesTab ->
-            case model.getSentencesState of
-                GetSentencesStale ->
+        TabClicked TabOverview ->
+            case overview.getState of
+                GetStale ->
                     ( { model
-                        | tab = PendingSentencesTab
-                        , getSentencesState = GetSentencesLoading
+                        | tab = TabOverview
+                        , overview =
+                            { overview | getState = GetLoading }
                       }
                     , Cmd.none
-                    , getPendingSentencesRequest
-                        |> Task.sheetsAttempt GotSentencesResponse
+                    , getRequest
+                        |> Task.sheetsAttempt GetFetched
                         |> Effect.google
                     )
 
                 _ ->
-                    ( { model | tab = PendingSentencesTab }
+                    ( { model | tab = TabOverview }
                     , Cmd.none
                     , Effect.none
                     )
@@ -283,15 +298,18 @@ update msg model =
                 trimmed =
                     String.trim str
             in
-            if trimmed == model.sentence then
+            if trimmed == mining.sentence then
                 ( model, Cmd.none, Effect.none )
 
             else
                 ( { model
-                    | sentence = trimmed
-                    , sentenceWords = RegexExtra.sentenceSplit str
-                    , selectedWord = Nothing
-                    , definitionState = DefinitionWordNotSelected
+                    | mining =
+                        { mining
+                            | sentence = trimmed
+                            , words = RegexExtra.sentenceSplit str
+                            , selected = Nothing
+                            , definitionState = DefinitionWordNotSelected
+                        }
                   }
                 , Cmd.none
                 , Effect.none
@@ -302,24 +320,35 @@ update msg model =
 
         WordSelected str ->
             ( { model
-                | selectedWord = Just str
-                , definitionState =
-                    DefinitionLoading
+                | mining =
+                    { mining
+                        | selected = Just str
+                        , definitionState = DefinitionLoading
+                    }
               }
             , Cmd.none
-            , Effect.wiktionary DefinitionFetchedResponse str
+            , Effect.wiktionary DefinitionFetched str
             )
 
-        DefinitionFetchedResponse result ->
-            case ( result, model.selectedWord ) of
+        DefinitionFetched result ->
+            case ( result, mining.selected ) of
                 ( Ok definition, Just _ ) ->
-                    ( { model | definitionState = DefinitionFetched definition }
+                    ( { model
+                        | mining =
+                            { mining
+                                | definitionState =
+                                    DefinitionFinished definition
+                            }
+                      }
                     , Cmd.none
                     , Effect.none
                     )
 
                 ( Err _, Just _ ) ->
-                    ( { model | definitionState = DefinitionNotFound }
+                    ( { model
+                        | mining =
+                            { mining | definitionState = DefinitionNotFound }
+                      }
                     , Cmd.none
                     , Effect.none
                     )
@@ -335,31 +364,34 @@ update msg model =
 
         MineClicked ->
             ( { model
-                | sentence = ""
-                , sentenceWords = []
-                , selectedWord = Nothing
-                , definitionState = DefinitionWordNotSelected
-                , addSentenceState = AddSentenceLoading
-                , getSentencesState = GetSentencesStale
+                | mining =
+                    { mining
+                        | sentence = ""
+                        , words = []
+                        , selected = Nothing
+                        , definitionState = DefinitionWordNotSelected
+                        , addState = AddLoading
+                    }
+                , overview = { overview | getState = GetStale }
               }
             , Cmd.none
-            , addPendingSentenceRequest
-                { word = model.selectedWord |> Maybe.withDefault ""
-                , sentence = model.sentence
+            , addRequest
+                { word = mining.selected |> Maybe.withDefault ""
+                , sentence = mining.sentence
                 , tags = []
                 }
-                |> Task.sheetsAttempt GotAddPendingSentenceResponse
+                |> Task.sheetsAttempt AddFetched
                 |> Effect.google
             )
 
-        GotAddPendingSentenceResponse (Ok _) ->
-            ( { model | addSentenceState = AddSentenceIdle }
+        AddFetched (Ok _) ->
+            ( { model | mining = { mining | addState = AddIdle } }
             , Cmd.none
             , Effect.none
             )
 
-        GotAddPendingSentenceResponse (Err err) ->
-            ( { model | addSentenceState = AddSentenceIdle }
+        AddFetched (Err err) ->
+            ( { model | mining = { mining | addState = AddIdle } }
             , Cmd.none
             , Effect.toast
                 { category = Toast.Error
@@ -368,12 +400,15 @@ update msg model =
                 }
             )
 
-        GotSentencesResponse response ->
-            case model.getSentencesState of
-                GetSentencesLoading ->
+        GetFetched response ->
+            case overview.getState of
+                GetLoading ->
                     ( { model
-                        | getSentencesState = GetSentencesFetched response
-                        , selectedSentences = Set.empty
+                        | overview =
+                            { overview
+                                | getState = GetFinished response
+                                , selected = Set.empty
+                            }
                       }
                     , Cmd.none
                     , Effect.none
@@ -387,60 +422,72 @@ update msg model =
         SentenceChecked index ->
             let
                 setOperation =
-                    if Set.member index model.selectedSentences then
+                    if Set.member index overview.selected then
                         Set.remove
 
                     else
                         Set.insert
             in
             ( { model
-                | selectedSentences = setOperation index model.selectedSentences
+                | overview =
+                    { overview
+                        | selected = setOperation index overview.selected
+                    }
               }
             , Cmd.none
             , Effect.none
             )
 
-        ConfirmBatchClicked ->
-            ( { model | confirmBatchState = ConfirmBatchLoading }
+        BatchConfirmClicked ->
+            ( { model
+                | overview = { overview | confirmState = ConfirmLoading }
+              }
             , Cmd.none
             , Effect.uuid UuidReceived
             )
 
         UuidReceived uuid ->
-            case model.getSentencesState of
-                GetSentencesFetched (Ok sentences) ->
+            case overview.getState of
+                GetFinished (Ok sentences) ->
                     ( model
                     , Cmd.none
                     , confirmBatchRequest
-                        { pendingSentences = sentences
-                        , selectedSentences = model.selectedSentences
+                        { sentences = sentences
+                        , selectedSentences = overview.selected
                         , batchId = uuid
                         }
-                        |> Task.sheetsAttempt GotConfirmBatchResponse
+                        |> Task.sheetsAttempt BatchFetched
                         |> Effect.google
                     )
 
                 -- non-ok status should be impossible at this point
                 _ ->
-                    ( { model | confirmBatchState = ConfirmBatchIdle }
+                    ( { model
+                        | overview = { overview | confirmState = ConfirmIdle }
+                      }
                     , Cmd.none
                     , Effect.none
                     )
 
-        GotConfirmBatchResponse (Ok ()) ->
+        BatchFetched (Ok ()) ->
             ( { model
-                | confirmBatchState = ConfirmBatchIdle
-                , getSentencesState = GetSentencesLoading
-                , selectedSentences = Set.empty
+                | overview =
+                    { overview
+                        | confirmState = ConfirmIdle
+                        , getState = GetLoading
+                        , selected = Set.empty
+                    }
               }
             , Cmd.none
-            , getPendingSentencesRequest
-                |> Task.sheetsAttempt GotSentencesResponse
+            , getRequest
+                |> Task.sheetsAttempt GetFetched
                 |> Effect.google
             )
 
-        GotConfirmBatchResponse (Err err) ->
-            ( { model | confirmBatchState = ConfirmBatchIdle }
+        BatchFetched (Err err) ->
+            ( { model
+                | overview = { overview | confirmState = ConfirmIdle }
+              }
             , Cmd.none
             , Effect.toast
                 { category = Toast.Error
@@ -449,172 +496,184 @@ update msg model =
                 }
             )
 
-        EditSentenceClicked index ->
+        EditClicked index ->
             ( { model
-                | editSentenceForm =
-                    case model.getSentencesState of
-                        GetSentencesFetched (Ok sentences) ->
-                            sentences
-                                |> Array.fromList
-                                |> Array.get index
-                                |> Maybe.map
-                                    (\sentence ->
-                                        { isOpen = True
-                                        , index = index
-                                        , sentence = sentence
-                                        , newTag = ""
-                                        , validation =
-                                            { word = Nothing
-                                            , sentence = Nothing
-                                            }
-                                        }
-                                    )
-                                |> Maybe.withDefault model.editSentenceForm
+                | overview =
+                    { overview
+                        | editForm =
+                            case overview.getState of
+                                GetFinished (Ok sentences) ->
+                                    sentences
+                                        |> Array.fromList
+                                        |> Array.get index
+                                        |> Maybe.map
+                                            (\sentence ->
+                                                { isOpen = True
+                                                , index = index
+                                                , sentence = sentence
+                                                , newTag = ""
+                                                , validation =
+                                                    { word = Nothing
+                                                    , sentence = Nothing
+                                                    }
+                                                }
+                                            )
+                                        |> Maybe.withDefault overview.editForm
 
-                        _ ->
-                            model.editSentenceForm
+                                _ ->
+                                    overview.editForm
+                    }
               }
             , Cmd.none
             , Effect.none
             )
 
-        UpdatedEditSentenceForm formInput ->
+        EditFormUpdated formInput ->
             ( { model
-                | editSentenceForm =
-                    let
-                        form =
-                            model.editSentenceForm
+                | overview =
+                    { overview
+                        | editForm =
+                            let
+                                form =
+                                    overview.editForm
 
-                        { sentence, newTag } =
-                            form
+                                { sentence, newTag } =
+                                    form
 
-                        { validation } =
-                            form
-                    in
-                    case formInput of
-                        WordField newWord ->
-                            { form
-                                | sentence = { sentence | word = newWord }
-                                , validation =
-                                    { validation
-                                        | word =
-                                            case newWord of
-                                                "" ->
-                                                    Just "Word field cannot be empty"
-
-                                                _ ->
-                                                    Nothing
-                                    }
-                            }
-
-                        SentenceField newSentence ->
-                            { form
-                                | sentence =
-                                    { sentence | sentence = newSentence }
-                                , validation =
-                                    { validation
+                                { validation } =
+                                    form
+                            in
+                            case formInput of
+                                WordField newWord ->
+                                    { form
                                         | sentence =
-                                            case newSentence of
-                                                "" ->
-                                                    Just "Sentence field cannot be empty"
+                                            { sentence
+                                                | word = newWord
+                                            }
+                                        , validation =
+                                            { validation
+                                                | word =
+                                                    case newWord of
+                                                        "" ->
+                                                            Just "Word field cannot be empty"
 
-                                                _ ->
-                                                    Nothing
+                                                        _ ->
+                                                            Nothing
+                                            }
                                     }
-                            }
 
-                        NewTagField newNewTag ->
-                            { form | newTag = newNewTag }
+                                SentenceField newSentence ->
+                                    { form
+                                        | sentence =
+                                            { sentence
+                                                | sentence = newSentence
+                                            }
+                                        , validation =
+                                            { validation
+                                                | sentence =
+                                                    case newSentence of
+                                                        "" ->
+                                                            Just "Sentence field cannot be empty"
 
-                        TagAdded ->
-                            { form
-                                | sentence =
-                                    { sentence
-                                        | tags =
-                                            sentence.tags
-                                                ++ [ String.trim newTag ]
+                                                        _ ->
+                                                            Nothing
+                                            }
                                     }
-                                , newTag = ""
-                            }
 
-                        TagRemoved tag ->
-                            { form
-                                | sentence =
-                                    { sentence
-                                        | tags =
-                                            List.filter
-                                                ((/=) tag)
-                                                sentence.tags
+                                NewTagField newNewTag ->
+                                    { form | newTag = newNewTag }
+
+                                TagAdded ->
+                                    { form
+                                        | sentence =
+                                            { sentence
+                                                | tags =
+                                                    sentence.tags
+                                                        ++ [ String.trim newTag
+                                                           ]
+                                            }
+                                        , newTag = ""
                                     }
-                            }
+
+                                TagRemoved tag ->
+                                    { form
+                                        | sentence =
+                                            { sentence
+                                                | tags =
+                                                    List.filter
+                                                        ((/=) tag)
+                                                        sentence.tags
+                                            }
+                                    }
+                    }
               }
             , Cmd.none
             , Effect.none
             )
 
-        EditSentenceConfirmClicked ->
+        EditConfirmClicked ->
             let
                 maybeFrom =
-                    case model.getSentencesState of
-                        GetSentencesFetched (Ok sentences) ->
+                    case overview.getState of
+                        GetFinished (Ok sentences) ->
                             sentences
                                 |> Array.fromList
-                                |> Array.get model.editSentenceForm.index
+                                |> Array.get overview.editForm.index
 
                         _ ->
                             Nothing
             in
             case maybeFrom of
                 Just from ->
-                    ( { model | editSentenceState = EditSentenceLoading }
+                    ( { model
+                        | overview = { overview | editState = EditLoading }
+                      }
                     , Cmd.none
-                    , editPendingSentenceRequest
+                    , editRequest
                         from
-                        model.editSentenceForm.sentence
-                        |> Task.sheetsAttempt GotEditSentenceResponse
+                        overview.editForm.sentence
+                        |> Task.sheetsAttempt EditFetched
                         |> Effect.google
                     )
 
                 Nothing ->
                     ( model, Cmd.none, Effect.none )
 
-        GotEditSentenceResponse (Ok ()) ->
+        EditFetched (Ok ()) ->
             let
                 form =
-                    model.editSentenceForm
+                    overview.editForm
 
                 { sentence } =
                     form
             in
             ( { model
-                | editSentenceState = EditSentenceIdle
-                , editSentenceForm = { form | isOpen = False }
-                , getSentencesState =
-                    case model.getSentencesState of
-                        GetSentencesFetched (Ok sentences) ->
-                            (GetSentencesFetched << Ok) <|
-                                List.indexedMap
-                                    (\index currentSentence ->
-                                        if index == form.index then
+                | overview =
+                    { overview
+                        | editState = EditIdle
+                        , editForm = { form | isOpen = False }
+                        , getState =
+                            case overview.getState of
+                                GetFinished (Ok sentences) ->
+                                    (GetFinished << Ok) <|
+                                        listTransformAt
+                                            form.index
                                             { sentence
                                                 | word =
                                                     String.toLower sentence.word
                                             }
+                                            sentences
 
-                                        else
-                                            currentSentence
-                                    )
-                                    sentences
-
-                        _ ->
-                            model.getSentencesState
+                                _ ->
+                                    overview.getState
+                    }
               }
             , Cmd.none
             , Effect.none
             )
 
-        GotEditSentenceResponse (Err err) ->
-            ( { model | editSentenceState = EditSentenceIdle }
+        EditFetched (Err err) ->
+            ( { model | overview = { overview | editState = EditIdle } }
             , Cmd.none
             , Effect.toast
                 { category = Toast.Error
@@ -623,94 +682,104 @@ update msg model =
                 }
             )
 
-        EditSentenceClose ->
+        EditDialogClosed ->
             let
                 form =
-                    model.editSentenceForm
+                    overview.editForm
             in
             ( { model
-                | editSentenceForm = { form | isOpen = False }
+                | overview =
+                    { overview | editForm = { form | isOpen = False } }
               }
             , Cmd.none
             , Effect.none
             )
 
-        DeleteSentenceClicked index ->
+        DeleteClicked index ->
             ( { model
-                | deleteSentenceForm =
-                    case model.getSentencesState of
-                        GetSentencesFetched (Ok sentences) ->
-                            sentences
-                                |> Array.fromList
-                                |> Array.get index
-                                |> Maybe.map
-                                    (\sentence ->
-                                        { isOpen = True
-                                        , index = index
-                                        , sentence = sentence
-                                        }
-                                    )
-                                |> Maybe.withDefault model.deleteSentenceForm
+                | overview =
+                    { overview
+                        | deleteForm =
+                            case overview.getState of
+                                GetFinished (Ok sentences) ->
+                                    sentences
+                                        |> Array.fromList
+                                        |> Array.get index
+                                        |> Maybe.map
+                                            (\sentence ->
+                                                { isOpen = True
+                                                , index = index
+                                                , sentence = sentence
+                                                }
+                                            )
+                                        |> Maybe.withDefault overview.deleteForm
 
-                        _ ->
-                            model.deleteSentenceForm
+                                _ ->
+                                    overview.deleteForm
+                    }
               }
             , Cmd.none
             , Effect.none
             )
 
-        DeleteSentenceClose ->
+        DeleteDialogClosed ->
             let
                 form =
-                    model.deleteSentenceForm
+                    overview.deleteForm
             in
-            ( { model | deleteSentenceForm = { form | isOpen = False } }
+            ( { model
+                | overview =
+                    { overview | deleteForm = { form | isOpen = False } }
+              }
             , Cmd.none
             , Effect.none
             )
 
-        DeleteSentenceConfirmClicked ->
-            ( { model | deleteSentenceState = DeleteSentenceLoading }
+        DeleteConfirmClicked ->
+            ( { model | overview = { overview | deleteState = DeleteLoading } }
             , Cmd.none
-            , removePendingSentenceRequest
-                model.deleteSentenceForm.sentence
-                |> Task.sheetsAttempt GotDeleteSentenceResponse
+            , removeRequest
+                overview.deleteForm.sentence
+                |> Task.sheetsAttempt DeleteFetched
                 |> Effect.google
             )
 
-        GotDeleteSentenceResponse (Ok ()) ->
+        DeleteFetched (Ok ()) ->
             let
                 form =
-                    model.deleteSentenceForm
+                    overview.deleteForm
             in
             ( { model
-                | deleteSentenceState = DeleteSentenceIdle
-                , deleteSentenceForm = { form | isOpen = False }
-                , getSentencesState =
-                    case model.getSentencesState of
-                        GetSentencesFetched (Ok sentences) ->
-                            (GetSentencesFetched << Ok)
-                                (sentences
-                                    |> List.indexedMap
-                                        (\index sentence ->
-                                            if index == form.index then
-                                                Nothing
+                | overview =
+                    { overview
+                        | deleteState = DeleteIdle
+                        , deleteForm = { form | isOpen = False }
+                        , getState =
+                            case overview.getState of
+                                GetFinished (Ok sentences) ->
+                                    (GetFinished << Ok)
+                                        (sentences
+                                            |> List.indexedMap
+                                                (\index sentence ->
+                                                    if index == form.index then
+                                                        Nothing
 
-                                            else
-                                                Just sentence
+                                                    else
+                                                        Just sentence
+                                                )
+                                            |> List.filterMap identity
                                         )
-                                    |> List.filterMap identity
-                                )
 
-                        _ ->
-                            model.getSentencesState
+                                _ ->
+                                    overview.getState
+                    }
               }
             , Cmd.none
             , Effect.none
             )
 
-        GotDeleteSentenceResponse (Err err) ->
-            ( { model | deleteSentenceState = DeleteSentenceIdle }
+        DeleteFetched (Err err) ->
+            ( { model | overview = { overview | deleteState = DeleteIdle } }
             , Cmd.none
             , Effect.toast
                 { category = Toast.Error
@@ -727,10 +796,10 @@ type alias AddPendingSentence =
     }
 
 
-addPendingSentenceRequest :
+addRequest :
     AddPendingSentence
     -> Task.SheetsTask ()
-addPendingSentenceRequest { word, sentence, tags } =
+addRequest { word, sentence, tags } =
     Task.platform Time.now
         |> Task.andThen
             (\time ->
@@ -796,8 +865,8 @@ addPendingSentenceRequest { word, sentence, tags } =
             )
 
 
-getPendingSentencesRequest : Task.SheetsTask (List PendingSentence)
-getPendingSentencesRequest =
+getRequest : Task.SheetsTask (List PendingSentence)
+getRequest =
     Sheets.batchUpdateAndGetGridDataRequest
         [ RequestDeleteRange
             { range =
@@ -856,23 +925,23 @@ maybeConstructPendingSentence =
 
 
 confirmBatchRequest :
-    { pendingSentences : List PendingSentence
+    { sentences : List PendingSentence
     , selectedSentences : Set Int
     , batchId : String
     }
     -> Task.SheetsTask ()
-confirmBatchRequest { pendingSentences, selectedSentences, batchId } =
+confirmBatchRequest { sentences, selectedSentences, batchId } =
     let
         tagged =
-            pendingSentences
+            sentences
                 |> List.indexedMap (\index sentence -> ( index, sentence ))
 
-        selectedPendingSentences =
+        sentencesToAdd =
             tagged
                 |> List.filter
                     (\( index, _ ) -> Set.member index selectedSentences)
 
-        deselectedPendingSentences =
+        sentencesToIgnore =
             tagged
                 |> List.filter
                     (\( index, _ ) -> not <| Set.member index selectedSentences)
@@ -884,7 +953,7 @@ confirmBatchRequest { pendingSentences, selectedSentences, batchId } =
                     [ RequestAppendCells
                         { sheetId = Constants.subSheetId MinedSentences
                         , rows =
-                            selectedPendingSentences
+                            sentencesToAdd
                                 |> List.map
                                     (\( _, { word, sentence, tags } ) ->
                                         [ RequestString word
@@ -900,7 +969,7 @@ confirmBatchRequest { pendingSentences, selectedSentences, batchId } =
                     , RequestAppendCells
                         { sheetId = Constants.subSheetId MinedWords
                         , rows =
-                            selectedPendingSentences
+                            sentencesToAdd
                                 |> List.map
                                     (\( _, { word } ) ->
                                         [ RequestString word
@@ -913,7 +982,7 @@ confirmBatchRequest { pendingSentences, selectedSentences, batchId } =
                     , RequestAppendCells
                         { sheetId = Constants.subSheetId BacklogSentences
                         , rows =
-                            deselectedPendingSentences
+                            sentencesToIgnore
                                 |> List.map
                                     (\( _, { word, sentence, tags } ) ->
                                         [ RequestString word
@@ -939,11 +1008,11 @@ confirmBatchRequest { pendingSentences, selectedSentences, batchId } =
             )
 
 
-editPendingSentenceRequest :
+editRequest :
     PendingSentence
     -> PendingSentence
     -> Task.SheetsTask ()
-editPendingSentenceRequest from to =
+editRequest from to =
     Sheets.batchUpdateRequest
         [ RequestInsertDimension
             { range =
@@ -1011,10 +1080,10 @@ editPendingSentenceRequest from to =
         ]
 
 
-removePendingSentenceRequest :
+removeRequest :
     PendingSentence
     -> Task.SheetsTask ()
-removePendingSentenceRequest sentence =
+removeRequest sentence =
     Sheets.batchUpdateRequest
         [ RequestInsertDimension
             { range =
@@ -1071,20 +1140,32 @@ removePendingSentenceRequest sentence =
         ]
 
 
-isBatchSelectionReady : Model -> Bool
-isBatchSelectionReady model =
-    case model.getSentencesState of
-        GetSentencesFetched (Ok sentences) ->
+listTransformAt : Int -> a -> List a -> List a
+listTransformAt index newValue =
+    List.indexedMap
+        (\itemIndex value ->
+            if itemIndex == index then
+                newValue
+
+            else
+                value
+        )
+
+
+isSelectionReady : Model -> Bool
+isSelectionReady { overview } =
+    case overview.getState of
+        GetFinished (Ok sentences) ->
             let
                 selectedSize =
-                    Set.size model.selectedSentences
+                    Set.size overview.selected
             in
             selectedSize
                 /= 0
                 && (selectedSize
                         == List.length sentences
                         || selectedSize
-                        == numSentencesToConfirmBatch
+                        == numSentencesPerBatch
                    )
 
         _ ->
@@ -1119,7 +1200,7 @@ view model =
                         ]
                   ]
                 , case model.tab of
-                    MiningTab ->
+                    TabMining ->
                         [ onClick BodyClicked ]
 
                     _ ->
@@ -1134,55 +1215,55 @@ view model =
                     ]
                     [ button
                         [ ariaControls "tabs-mining"
-                        , ariaSelected (model.tab == MiningTab)
+                        , ariaSelected (model.tab == TabMining)
                         , id "tabs-mining"
                         , role "tab"
                         , tabIndex "0"
                         , type_ "button"
-                        , onClick (TabClicked MiningTab)
+                        , onClick (TabClicked TabMining)
                         ]
                         [ text "Mining" ]
                     , button
-                        [ ariaControls "tabs-pending-sentences"
-                        , ariaSelected (model.tab == PendingSentencesTab)
-                        , id "demo-tabs-with-panels-tab-2"
+                        [ ariaControls "tabs-overview"
+                        , ariaSelected (model.tab == TabOverview)
+                        , id "tabs-overview"
                         , role "tab"
                         , tabIndex "0"
                         , type_ "button"
-                        , onClick (TabClicked PendingSentencesTab)
+                        , onClick (TabClicked TabOverview)
                         ]
-                        [ text "Pending Sentences" ]
+                        [ text "Overview" ]
                     ]
                 , div
                     [ ariaLabelledBy "tabs-mining"
-                    , ariaSelected (model.tab == MiningTab)
-                    , hidden (model.tab /= MiningTab)
+                    , ariaSelected (model.tab == TabMining)
+                    , hidden (model.tab /= TabMining)
                     , id "tabs-mining"
                     , role "tabpanel"
                     , tabIndex "-1"
                     ]
                     [ miningTabView model ]
                 , div
-                    [ ariaLabelledBy "tabs-pending-sentences"
-                    , ariaSelected (model.tab == PendingSentencesTab)
-                    , hidden (model.tab /= PendingSentencesTab)
-                    , id "tabs-pending-sentences"
+                    [ ariaLabelledBy "tabs-overview"
+                    , ariaSelected (model.tab == TabOverview)
+                    , hidden (model.tab /= TabOverview)
+                    , id "tabs-overview"
                     , role "tabpanel"
                     , tabIndex "-1"
                     ]
-                    [ pendingSentencesTabView model ]
+                    [ overviewTabView model ]
                 ]
-            , editSentenceDialogView model
-            , deleteSentenceDialogView model
+            , editDialogView model
+            , deleteDialogView model
             ]
     }
 
 
-editSentenceDialogView : Model -> Html Msg
-editSentenceDialogView model =
+editDialogView : Model -> Html Msg
+editDialogView { overview } =
     modalDialog
-        model.editSentenceForm.isOpen
-        EditSentenceClose
+        overview.editForm.isOpen
+        EditDialogClosed
         [ classes
             [ "dialog"
             , "w-full"
@@ -1203,19 +1284,17 @@ editSentenceDialogView model =
                               , input
                                     [ type_ "text"
                                     , id "edit-sentence-word"
-                                    , value model.editSentenceForm.sentence.word
+                                    , value overview.editForm.sentence.word
                                     , onInput
-                                        (UpdatedEditSentenceForm
-                                            << WordField
-                                        )
+                                        (EditFormUpdated << WordField)
                                     , ariaInvalid
-                                        (model.editSentenceForm.validation.word
+                                        (overview.editForm.validation.word
                                             /= Nothing
                                         )
                                     ]
                                     []
                               ]
-                            , case model.editSentenceForm.validation.word of
+                            , case overview.editForm.validation.word of
                                 Just error ->
                                     [ p
                                         [ classes
@@ -1236,18 +1315,17 @@ editSentenceDialogView model =
                               , textarea
                                     [ id "edit-sentence-sentence"
                                     , onInput
-                                        (UpdatedEditSentenceForm
+                                        (EditFormUpdated
                                             << SentenceField
                                         )
                                     , ariaInvalid
-                                        (model.editSentenceForm.validation.sentence
+                                        (overview.editForm.validation.sentence
                                             /= Nothing
                                         )
                                     ]
-                                    [ text model.editSentenceForm.sentence.sentence
-                                    ]
+                                    [ text overview.editForm.sentence.sentence ]
                               ]
-                            , case model.editSentenceForm.validation.sentence of
+                            , case overview.editForm.validation.sentence of
                                 Just error ->
                                     [ p
                                         [ classes
@@ -1266,7 +1344,7 @@ editSentenceDialogView model =
                             [ [ label [ for "edit-sentence-tags" ]
                                     [ text "Tags" ]
                               ]
-                            , case model.editSentenceForm.sentence.tags of
+                            , case overview.editForm.sentence.tags of
                                 [] ->
                                     []
 
@@ -1289,7 +1367,7 @@ editSentenceDialogView model =
                                                         ]
                                                     , type_ "button"
                                                     , onClick
-                                                        (UpdatedEditSentenceForm
+                                                        (EditFormUpdated
                                                             (TagRemoved tag)
                                                         )
                                                     ]
@@ -1300,14 +1378,14 @@ editSentenceDialogView model =
                                             )
                                             rest
                                     ]
-                            , [ div [ class "flex gap-2" ]
+                            , [ div [ classes [ "flex", "gap-2" ] ]
                                     [ input
                                         [ type_ "text"
                                         , id "edit-sentence-tags"
                                         , placeholder "Add a tag..."
-                                        , value model.editSentenceForm.newTag
+                                        , value overview.editForm.newTag
                                         , onInput
-                                            (UpdatedEditSentenceForm
+                                            (EditFormUpdated
                                                 << NewTagField
                                             )
                                         ]
@@ -1318,20 +1396,19 @@ editSentenceDialogView model =
                                         , disabled <|
                                             let
                                                 tags =
-                                                    model.editSentenceForm.sentence.tags
+                                                    overview.editForm.sentence.tags
 
                                                 newTag =
-                                                    model.editSentenceForm.newTag
+                                                    overview.editForm.newTag
                                             in
                                             String.isEmpty newTag
                                                 || List.any
                                                     ((==) (String.trim newTag))
                                                     tags
                                         , onClick
-                                            (UpdatedEditSentenceForm TagAdded)
+                                            (EditFormUpdated TagAdded)
                                         ]
-                                        [ plusIcon []
-                                        ]
+                                        [ plusIcon [] ]
                                     ]
                               ]
                             ]
@@ -1340,29 +1417,29 @@ editSentenceDialogView model =
             , footer []
                 [ button
                     [ class "btn-outline"
-                    , onClick EditSentenceClose
-                    , disabled (model.editSentenceState == EditSentenceLoading)
+                    , onClick EditDialogClosed
+                    , disabled (overview.editState == EditLoading)
                     ]
                     [ text "Cancel" ]
                 , button
                     [ class "btn"
-                    , onClick EditSentenceConfirmClicked
+                    , onClick EditConfirmClicked
                     , disabled
-                        (model.editSentenceState
-                            == EditSentenceLoading
-                            || model.editSentenceForm.validation.word
+                        (overview.editState
+                            == EditLoading
+                            || overview.editForm.validation.word
                             /= Nothing
-                            || model.editSentenceForm.validation.sentence
+                            || overview.editForm.validation.sentence
                             /= Nothing
                         )
                     ]
                   <|
                     List.concat
-                        [ case model.editSentenceState of
-                            EditSentenceIdle ->
+                        [ case overview.editState of
+                            EditIdle ->
                                 []
 
-                            EditSentenceLoading ->
+                            EditLoading ->
                                 [ loadingIcon [] ]
                         , [ text "Save changes" ]
                         ]
@@ -1370,18 +1447,18 @@ editSentenceDialogView model =
             , button
                 [ type_ "button"
                 , ariaLabel "Close dialog"
-                , onClick EditSentenceClose
+                , onClick EditDialogClosed
                 ]
                 [ crossIcon [] ]
             ]
         ]
 
 
-deleteSentenceDialogView : Model -> Html Msg
-deleteSentenceDialogView model =
+deleteDialogView : Model -> Html Msg
+deleteDialogView { overview } =
     modalDialog
-        model.deleteSentenceForm.isOpen
-        DeleteSentenceClose
+        overview.deleteForm.isOpen
+        DeleteDialogClosed
         [ classes
             [ "dialog"
             , "w-full"
@@ -1395,28 +1472,26 @@ deleteSentenceDialogView model =
                 , p [] [ text "Are you sure you want to delete this sentence?" ]
                 ]
             , section []
-                [ sentenceView [] model.deleteSentenceForm.sentence ]
+                [ sentenceView [] overview.deleteForm.sentence ]
             , footer []
                 [ button
                     [ class "btn-outline"
-                    , onClick DeleteSentenceClose
-                    , disabled
-                        (model.deleteSentenceState == DeleteSentenceLoading)
+                    , onClick DeleteDialogClosed
+                    , disabled (overview.deleteState == DeleteLoading)
                     ]
                     [ text "Cancel" ]
                 , button
                     [ class "btn-destructive"
-                    , onClick DeleteSentenceConfirmClicked
-                    , disabled
-                        (model.deleteSentenceState == DeleteSentenceLoading)
+                    , onClick DeleteConfirmClicked
+                    , disabled (overview.deleteState == DeleteLoading)
                     ]
                   <|
                     List.concat
-                        [ case model.deleteSentenceState of
-                            DeleteSentenceIdle ->
+                        [ case overview.deleteState of
+                            DeleteIdle ->
                                 []
 
-                            DeleteSentenceLoading ->
+                            DeleteLoading ->
                                 [ loadingIcon [] ]
                         , [ text "Delete permanently" ]
                         ]
@@ -1424,7 +1499,7 @@ deleteSentenceDialogView model =
             , button
                 [ type_ "button"
                 , ariaLabel "Close dialog"
-                , onClick DeleteSentenceClose
+                , onClick DeleteDialogClosed
                 ]
                 [ crossIcon [] ]
             ]
@@ -1457,10 +1532,7 @@ sentenceView attributes sentence =
                     []
 
                 rest ->
-                    [ div
-                        [ classes [ "flex", "flex-wrap", "gap-2" ]
-                        ]
-                      <|
+                    [ div [ classes [ "flex", "flex-wrap", "gap-2" ] ] <|
                         List.map
                             (\tag ->
                                 div [ classes [ "badge", "py-0", "px-1" ] ]
@@ -1483,9 +1555,9 @@ onClick msg =
 
 
 miningTabView : Model -> Html Msg
-miningTabView model =
+miningTabView { mining } =
     div [ classes [ "flex", "flex-col", "h-full", "mt-2" ] ]
-        [ if List.length model.sentenceWords > 0 then
+        [ if List.length mining.words > 0 then
             div
                 [ classes
                     [ "grow-1"
@@ -1517,15 +1589,13 @@ miningTabView model =
                                             , "pl-2"
                                             ]
                                         , onClick
-                                            (WordSelected
-                                                (String.toLower word)
-                                            )
+                                            (WordSelected (String.toLower word))
                                         ]
                                         [ text word ]
                                 )
-                                model.sentenceWords
+                                mining.words
                       ]
-                    , dictionaryView model.selectedWord model.definitionState
+                    , dictionaryView mining.selected mining.definitionState
                     ]
 
           else
@@ -1551,19 +1621,19 @@ miningTabView model =
             , button
                 [ classes [ "btn-primary", "w-full", "mb-4" ]
                 , disabled
-                    (model.selectedWord
+                    (mining.selected
                         == Nothing
-                        || model.addSentenceState
-                        == AddSentenceLoading
+                        || mining.addState
+                        == AddLoading
                     )
                 , onClick MineClicked
                 ]
                 (List.concat
-                    [ case model.addSentenceState of
-                        AddSentenceIdle ->
+                    [ case mining.addState of
+                        AddIdle ->
                             []
 
-                        AddSentenceLoading ->
+                        AddLoading ->
                             [ loadingIcon [] ]
                     , [ text "Mine sentence" ]
                     ]
@@ -1617,10 +1687,10 @@ dictionaryView maybeWord definitionState =
                             ]
                         ]
 
-                    DefinitionFetched (Usages []) ->
+                    DefinitionFinished (Usages []) ->
                         [ notFoundView ]
 
-                    DefinitionFetched usages ->
+                    DefinitionFinished usages ->
                         usagesView usages
 
                     DefinitionNotFound ->
@@ -1649,7 +1719,7 @@ definitionsView index (Definitions definitions) =
     div [ classes [ "card", "p-3", "mt-4", "gap-0" ] ]
         [ header [ classes [ "p-0", "flex", "justify-center" ] ]
             [ text ("Etymology " ++ String.fromInt (index + 1)) ]
-        , section [ class "pl-0 pr-0" ]
+        , section [ classes [ "pl-0", "pr-0" ] ]
             [ ul [ classes [ "list-decimal", "list-inside" ] ] <|
                 List.map
                     (\definition ->
@@ -1729,36 +1799,36 @@ formUsagesView { word, usages } =
 
 
 
--- PENDING SENTENCES TAB VIEW
+-- OVERVIEW TAB VIEW
 
 
-pendingSentencesTabView : Model -> Html Msg
-pendingSentencesTabView model =
-    div [ classes [ "flex flex-col h-full mt-2" ] ]
+overviewTabView : Model -> Html Msg
+overviewTabView ({ overview } as model) =
+    div [ classes [ "flex", "flex-col", "h-full", "mt-2" ] ]
         [ div [ classes [ "grow-1", "shrink-0", "overflow-auto", "basis-0" ] ]
-            [ case model.getSentencesState of
-                GetSentencesStale ->
+            [ case overview.getState of
+                GetStale ->
                     div [] []
 
-                GetSentencesLoading ->
+                GetLoading ->
                     div []
-                        [ pendingSentenceSkeletonView "w-[7%]" "w-[85%]"
-                        , pendingSentenceSkeletonView "w-[10%]" "w-[70%]"
-                        , pendingSentenceSkeletonView "w-[5%]" "w-[95%]"
+                        [ sentenceSkeletonView "w-[7%]" "w-[85%]"
+                        , sentenceSkeletonView "w-[10%]" "w-[70%]"
+                        , sentenceSkeletonView "w-[5%]" "w-[95%]"
                         ]
 
-                GetSentencesFetched (Ok []) ->
-                    div [ classes [ "alert" ] ]
+                GetFinished (Ok []) ->
+                    div [ class "alert" ]
                         [ infoIcon []
                         , h2 [] [ text "No sentences have yet been mined." ]
                         ]
 
-                GetSentencesFetched (Ok sentences) ->
+                GetFinished (Ok sentences) ->
                     div []
-                        (List.indexedMap (pendingSentenceView model) sentences)
+                        (List.indexedMap (overviewSentenceView model) sentences)
 
-                GetSentencesFetched (Err err) ->
-                    div [ classes [ "alert-destructive" ] ]
+                GetFinished (Err err) ->
+                    div [ class "alert-destructive" ]
                         [ warningCircleIcon []
                         , h2 [] [ text "Unable to fetch pending sentences." ]
                         , section [] [ text <| Task.errorToMessage err ]
@@ -1768,16 +1838,16 @@ pendingSentencesTabView model =
             [ button
                 [ classes [ "btn-primary", "w-full", "mb-4" ]
                 , disabled
-                    (model.getSentencesState
-                        == GetSentencesLoading
-                        || not (isBatchSelectionReady model)
-                        || model.confirmBatchState
-                        == ConfirmBatchLoading
+                    (overview.getState
+                        == GetLoading
+                        || not (isSelectionReady model)
+                        || overview.confirmState
+                        == ConfirmLoading
                     )
-                , onClick ConfirmBatchClicked
+                , onClick BatchConfirmClicked
                 ]
                 (List.concat
-                    [ if model.confirmBatchState == ConfirmBatchLoading then
+                    [ if overview.confirmState == ConfirmLoading then
                         [ loadingIcon [] ]
 
                       else
@@ -1789,8 +1859,8 @@ pendingSentencesTabView model =
         ]
 
 
-pendingSentenceSkeletonView : String -> String -> Html Msg
-pendingSentenceSkeletonView wordSize sentenceSize =
+sentenceSkeletonView : String -> String -> Html Msg
+sentenceSkeletonView wordSize sentenceSize =
     div
         [ classes
             [ "flex"
@@ -1825,8 +1895,8 @@ pendingSentenceSkeletonView wordSize sentenceSize =
         ]
 
 
-pendingSentenceView : Model -> Int -> PendingSentence -> Html Msg
-pendingSentenceView model index sentence =
+overviewSentenceView : Model -> Int -> PendingSentence -> Html Msg
+overviewSentenceView ({ overview } as model) index sentence =
     label
         [ classes
             [ "flex"
@@ -1847,7 +1917,7 @@ pendingSentenceView model index sentence =
         [ input
             (let
                 isChecked =
-                    Set.member index model.selectedSentences
+                    Set.member index overview.selected
              in
              [ classes
                 [ "input checked:bg-blue-600"
@@ -1859,7 +1929,7 @@ pendingSentenceView model index sentence =
              , type_ "checkbox"
              , checked isChecked
              , onCheck (\_ -> SentenceChecked index)
-             , disabled (not isChecked && isBatchSelectionReady model)
+             , disabled (not isChecked && isSelectionReady model)
              ]
             )
             []
@@ -1868,12 +1938,12 @@ pendingSentenceView model index sentence =
                 [ sentenceView [ class "grow-1" ] sentence
                 , button
                     [ class "btn-sm-icon-ghost"
-                    , onClick (EditSentenceClicked index)
+                    , onClick (EditClicked index)
                     ]
                     [ squarePenIcon [] ]
                 , button
                     [ class "btn-sm-icon-ghost text-(--destructive)"
-                    , onClick (DeleteSentenceClicked index)
+                    , onClick (DeleteClicked index)
                     ]
                     [ trashIcon [] ]
                 ]
@@ -1885,6 +1955,6 @@ pendingSentenceView model index sentence =
 -- CONSTANTS
 
 
-numSentencesToConfirmBatch : Int
-numSentencesToConfirmBatch =
+numSentencesPerBatch : Int
+numSentencesPerBatch =
     10
