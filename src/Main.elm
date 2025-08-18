@@ -16,7 +16,6 @@ import Basecoat
         , dataAlign
         , dataSide
         , dataSideBarInitialized
-        , dataTooltip
         , inert
         , role
         )
@@ -496,25 +495,28 @@ performEffect model effect =
     Effect.match effect
         { onNone = ( model, Cmd.none )
         , onGoogle =
-            \googleEffect ->
+            \action ->
                 update
-                    (GotApiMsg <|
-                        GotGoogleMsg <|
-                            Google.SentAction googleEffect
+                    (Google.SentAction action
+                        |> GotGoogleMsg
+                        |> GotApiMsg
                     )
                     model
         , onWiktionary =
             \request ->
                 update
-                    (GotApiMsg <|
-                        GotWiktionaryMsg <|
-                            Wiktionary.SentRequest request
+                    (Wiktionary.SentRequest request
+                        |> GotWiktionaryMsg
+                        |> GotApiMsg
                     )
                     model
         , onUuid =
             \toMsg ->
                 update
-                    (GotApiMsg <| GotUuidMsg <| Uuid.SentRequest toMsg)
+                    (Uuid.SentRequest toMsg
+                        |> GotUuidMsg
+                        |> GotApiMsg
+                    )
                     model
         , onToast =
             \config ->

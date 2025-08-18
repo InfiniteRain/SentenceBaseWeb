@@ -79,6 +79,7 @@ import Icon.Tag exposing (tagIcon)
 import Icon.Trash exposing (trashIcon)
 import Icon.WarningCircle exposing (warningCircleIcon)
 import Json.Decode as Decode
+import Json.Encode as Encode
 import Port
 import Regex
 import RegexExtra
@@ -113,6 +114,8 @@ type alias MiningState =
     , selected : Maybe String
     , definitionState : DefinitionState
     , addState : AddState
+    , tags : List String
+    , tagsForm : TagsForm
     }
 
 
@@ -126,6 +129,13 @@ type DefinitionState
 type AddState
     = AddIdle
     | AddLoading
+
+
+type alias TagsForm =
+    { isOpen : Bool
+    , tags : List String
+    , newTagInput : String
+    }
 
 
 type alias OverviewState =
@@ -192,6 +202,12 @@ init session =
             , selected = Nothing
             , definitionState = DefinitionWordNotSelected
             , addState = AddIdle
+            , tags = []
+            , tagsForm =
+                { isOpen = False
+                , tags = []
+                , newTagInput = ""
+                }
             }
       , overview =
             { selected = Set.empty
@@ -226,7 +242,10 @@ init session =
             , confirmState = ConfirmIdle
             }
       }
-    , Cmd.none
+    , Port.localStorageGet
+        tagsLocalStorageKey
+        (Decode.list Decode.string)
+        |> PlatformTask.attempt TagsLocalStorageFetched
     , Effect.none
     )
 
@@ -236,13 +255,18 @@ init session =
 
 
 type Msg
-    = TabClicked Tab
+    = TagsLocalStorageFetched (TaskPort.Result (List String))
+    | TabClicked Tab
     | BodyClicked
     | ClipboardUpdated (TaskPort.Result String)
     | WordSelected String
     | DefinitionFetched (Result Http.Error Wiktionary.Usages)
     | MineClicked
     | AddFetched (Result Task.Error ())
+    | TagsClicked
+    | TagsFormUpdated TagsFormInput
+    | TagsDialogClosed
+    | TagsConfirmClicked
     | GetFetched (Result Task.Error (List PendingSentence))
     | SentenceChecked Int
     | BatchConfirmClicked
@@ -257,19 +281,40 @@ type Msg
     | DeleteDialogClosed
     | DeleteConfirmClicked
     | DeleteFetched (Result Task.Error ())
+    | NoOp
+
+
+type TagsFormInput
+    = TagsFormField String
+    | TagsFormAdded String
+    | TagsFormRemoved String
 
 
 type EditFormInput
     = WordField String
     | SentenceField String
     | NewTagField String
-    | TagAdded
+    | TagAdded String
     | TagRemoved String
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Effect Msg )
 update msg ({ mining, overview } as model) =
     case msg of
+        TagsLocalStorageFetched (Ok tags) ->
+            ( { model | mining = { mining | tags = tags } }
+            , Cmd.none
+            , Effect.none
+            )
+
+        TagsLocalStorageFetched (Err _) ->
+            ( model
+            , Port.localStorageRemove
+                tagsLocalStorageKey
+                |> PlatformTask.attempt (\_ -> NoOp)
+            , Effect.none
+            )
+
         TabClicked TabMining ->
             ( { model | tab = TabMining }, Cmd.none, Effect.none )
 
@@ -382,6 +427,87 @@ update msg ({ mining, overview } as model) =
                 }
                 |> Task.sheetsAttempt AddFetched
                 |> Effect.google
+            )
+
+        TagsClicked ->
+            ( { model
+                | mining =
+                    { mining
+                        | tagsForm =
+                            { isOpen = True
+                            , tags = mining.tags
+                            , newTagInput = ""
+                            }
+                    }
+              }
+            , Cmd.none
+            , Effect.none
+            )
+
+        TagsFormUpdated formInput ->
+            ( { model
+                | mining =
+                    { mining
+                        | tagsForm =
+                            let
+                                form =
+                                    mining.tagsForm
+                            in
+                            case formInput of
+                                TagsFormField newTag ->
+                                    { form | newTagInput = newTag }
+
+                                TagsFormAdded tag ->
+                                    { form
+                                        | tags =
+                                            form.tags
+                                                ++ [ String.trim tag ]
+                                        , newTagInput = ""
+                                    }
+
+                                TagsFormRemoved tag ->
+                                    { form
+                                        | tags =
+                                            List.filter
+                                                ((/=) tag)
+                                                form.tags
+                                    }
+                    }
+              }
+            , Cmd.none
+            , Effect.none
+            )
+
+        TagsDialogClosed ->
+            let
+                form =
+                    mining.tagsForm
+            in
+            ( { model
+                | mining =
+                    { mining | tagsForm = { form | isOpen = False } }
+              }
+            , Cmd.none
+            , Effect.none
+            )
+
+        TagsConfirmClicked ->
+            let
+                form =
+                    mining.tagsForm
+            in
+            ( { model
+                | mining =
+                    { mining
+                        | tagsForm = { form | isOpen = False }
+                        , tags = form.tags
+                    }
+              }
+            , Port.localStorageSet
+                tagsLocalStorageKey
+                (Encode.list Encode.string form.tags)
+                |> PlatformTask.attempt (\_ -> NoOp)
+            , Effect.none
             )
 
         AddFetched (Ok _) ->
@@ -537,7 +663,7 @@ update msg ({ mining, overview } as model) =
                                 form =
                                     overview.editForm
 
-                                { sentence, newTag } =
+                                { sentence } =
                                     form
 
                                 { validation } =
@@ -583,14 +709,13 @@ update msg ({ mining, overview } as model) =
                                 NewTagField newNewTag ->
                                     { form | newTag = newNewTag }
 
-                                TagAdded ->
+                                TagAdded tag ->
                                     { form
                                         | sentence =
                                             { sentence
                                                 | tags =
                                                     sentence.tags
-                                                        ++ [ String.trim newTag
-                                                           ]
+                                                        ++ [ String.trim tag ]
                                             }
                                         , newTag = ""
                                     }
@@ -787,6 +912,9 @@ update msg ({ mining, overview } as model) =
                 , description = Task.errorToMessage err
                 }
             )
+
+        NoOp ->
+            ( model, Cmd.none, Effect.none )
 
 
 type alias AddPendingSentence =
@@ -1255,6 +1383,7 @@ view model =
                 ]
             , editDialogView model
             , deleteDialogView model
+            , tagsDialogView model
             ]
     }
 
@@ -1339,79 +1468,13 @@ editDialogView { overview } =
                                 _ ->
                                     []
                             ]
-                    , div [ classes [ "grid", "gap-3" ] ] <|
-                        List.concat
-                            [ [ label [ for "edit-sentence-tags" ]
-                                    [ text "Tags" ]
-                              ]
-                            , case overview.editForm.sentence.tags of
-                                [] ->
-                                    []
-
-                                rest ->
-                                    [ div
-                                        [ classes
-                                            [ "flex"
-                                            , "flex-wrap"
-                                            , "gap-2"
-                                            ]
-                                        ]
-                                      <|
-                                        List.map
-                                            (\tag ->
-                                                button
-                                                    [ classes
-                                                        [ "badge"
-                                                        , "py-0"
-                                                        , "px-1"
-                                                        ]
-                                                    , type_ "button"
-                                                    , onClick
-                                                        (EditFormUpdated
-                                                            (TagRemoved tag)
-                                                        )
-                                                    ]
-                                                    [ tagIcon []
-                                                    , text tag
-                                                    , crossIcon []
-                                                    ]
-                                            )
-                                            rest
-                                    ]
-                            , [ div [ classes [ "flex", "gap-2" ] ]
-                                    [ input
-                                        [ type_ "text"
-                                        , id "edit-sentence-tags"
-                                        , placeholder "Add a tag..."
-                                        , value overview.editForm.newTag
-                                        , onInput
-                                            (EditFormUpdated
-                                                << NewTagField
-                                            )
-                                        ]
-                                        []
-                                    , button
-                                        [ class "btn-icon-outline"
-                                        , type_ "button"
-                                        , disabled <|
-                                            let
-                                                tags =
-                                                    overview.editForm.sentence.tags
-
-                                                newTag =
-                                                    overview.editForm.newTag
-                                            in
-                                            String.isEmpty newTag
-                                                || List.any
-                                                    ((==) (String.trim newTag))
-                                                    tags
-                                        , onClick
-                                            (EditFormUpdated TagAdded)
-                                        ]
-                                        [ plusIcon [] ]
-                                    ]
-                              ]
-                            ]
+                    , tagsFieldView
+                        { tags = overview.editForm.sentence.tags
+                        , newTagInput = overview.editForm.newTag
+                        , onNewTagInputChange = EditFormUpdated << NewTagField
+                        , onRemoved = EditFormUpdated << TagRemoved
+                        , onAdded = EditFormUpdated << TagAdded
+                        }
                     ]
                 ]
             , footer []
@@ -1452,6 +1515,128 @@ editDialogView { overview } =
                 [ crossIcon [] ]
             ]
         ]
+
+
+tagsDialogView : Model -> Html Msg
+tagsDialogView { mining } =
+    modalDialog
+        mining.tagsForm.isOpen
+        TagsDialogClosed
+        [ classes
+            [ "dialog"
+            , "w-full"
+            , "sm:max-w-[425px]"
+            , "max-h-[612px]"
+            ]
+        ]
+        [ article []
+            [ header []
+                [ h2 [] [ text "Edit sentence" ]
+                ]
+            , section []
+                [ form [ classes [ "form", "grid", "gap-4" ] ] <|
+                    [ tagsFieldView
+                        { tags = mining.tagsForm.tags
+                        , newTagInput = mining.tagsForm.newTagInput
+                        , onNewTagInputChange = TagsFormUpdated << TagsFormField
+                        , onRemoved = TagsFormUpdated << TagsFormRemoved
+                        , onAdded = TagsFormUpdated << TagsFormAdded
+                        }
+                    ]
+                ]
+            , footer []
+                [ button
+                    [ class "btn-outline"
+                    , onClick TagsDialogClosed
+                    ]
+                    [ text "Cancel" ]
+                , button
+                    [ class "btn"
+                    , onClick TagsConfirmClicked
+                    ]
+                    [ text "Save changes" ]
+                ]
+            , button
+                [ type_ "button"
+                , ariaLabel "Close dialog"
+                , onClick TagsDialogClosed
+                ]
+                [ crossIcon [] ]
+            ]
+        ]
+
+
+type alias TagsFieldForm =
+    { tags : List String
+    , newTagInput : String
+    , onNewTagInputChange : String -> Msg
+    , onRemoved : String -> Msg
+    , onAdded : String -> Msg
+    }
+
+
+tagsFieldView : TagsFieldForm -> Html Msg
+tagsFieldView { tags, newTagInput, onNewTagInputChange, onRemoved, onAdded } =
+    div [ classes [ "grid", "gap-3" ] ] <|
+        List.concat
+            [ [ label [ for "edit-tags" ]
+                    [ text "Tags" ]
+              ]
+            , case tags of
+                [] ->
+                    []
+
+                rest ->
+                    [ div
+                        [ classes
+                            [ "flex"
+                            , "flex-wrap"
+                            , "gap-2"
+                            ]
+                        ]
+                      <|
+                        List.map
+                            (\tag ->
+                                button
+                                    [ classes
+                                        [ "badge"
+                                        , "py-0"
+                                        , "px-1.5"
+                                        , "rounded-2xl"
+                                        ]
+                                    , type_ "button"
+                                    , onClick <| onRemoved tag
+                                    ]
+                                    [ tagIcon []
+                                    , text tag
+                                    , crossIcon []
+                                    ]
+                            )
+                            rest
+                    ]
+            , [ div [ classes [ "flex", "gap-2" ] ]
+                    [ input
+                        [ type_ "text"
+                        , id "edit-tags"
+                        , placeholder "Add a tag..."
+                        , value newTagInput
+                        , onInput onNewTagInputChange
+                        ]
+                        []
+                    , button
+                        [ class "btn-icon-outline"
+                        , type_ "button"
+                        , disabled <|
+                            String.isEmpty newTagInput
+                                || List.any
+                                    ((==) (String.trim newTagInput))
+                                    tags
+                        , onClick <| onAdded newTagInput
+                        ]
+                        [ plusIcon [] ]
+                    ]
+              ]
+            ]
 
 
 deleteDialogView : Model -> Html Msg
@@ -1535,7 +1720,14 @@ sentenceView attributes sentence =
                     [ div [ classes [ "flex", "flex-wrap", "gap-2" ] ] <|
                         List.map
                             (\tag ->
-                                div [ classes [ "badge", "py-0", "px-1" ] ]
+                                div
+                                    [ classes
+                                        [ "badge"
+                                        , "py-0"
+                                        , "px-1.5"
+                                        , "rounded-2xl"
+                                        ]
+                                    ]
                                     [ tagIcon []
                                     , text tag
                                     ]
@@ -1611,13 +1803,34 @@ miningTabView { mining } =
                 ]
                 [ text "Click to paste and analyze a sentence!" ]
         , div [ classes [ "grow-0", "shrink-1", "mt-4" ] ]
-            [ div [ classes [ "flex", "flex-wrap", "gap-2", "mb-4" ] ]
-                [ button
-                    [ classes [ "badge" ]
-                    , type_ "button"
+            [ div [ classes [ "flex", "flex-wrap", "gap-2", "mb-4" ] ] <|
+                List.concat
+                    [ List.map
+                        (\tag ->
+                            div
+                                [ classes
+                                    [ "badge"
+                                    , "rounded-2xl"
+                                    , "text-sm"
+                                    ]
+                                ]
+                                [ tagIcon []
+                                , text tag
+                                ]
+                        )
+                        mining.tags
+                    , [ button
+                            [ classes
+                                [ "badge"
+                                , "rounded-2xl"
+                                , "text-sm"
+                                ]
+                            , onClick TagsClicked
+                            , type_ "button"
+                            ]
+                            [ squarePenIcon [] ]
+                      ]
                     ]
-                    [ text "Edit tags..." ]
-                ]
             , button
                 [ classes [ "btn-primary", "w-full", "mb-4" ]
                 , disabled
@@ -1958,3 +2171,8 @@ overviewSentenceView ({ overview } as model) index sentence =
 numSentencesPerBatch : Int
 numSentencesPerBatch =
     10
+
+
+tagsLocalStorageKey : String
+tagsLocalStorageKey =
+    "tags"

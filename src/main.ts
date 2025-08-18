@@ -134,6 +134,25 @@ TaskPort.register(
     }),
 );
 
+const localStoragePrefix = "sentence_base_storage_";
+
+TaskPort.register(
+  "localStorageSet",
+  async ({ key, value }: { key: string; value: any }) => {
+    console.log("set: ", { key, value });
+    localStorage.setItem(`${localStoragePrefix}${key}`, JSON.stringify(value));
+  },
+);
+
+TaskPort.register("localStorageGet", async (key: string) => {
+  console.log("get: ", key);
+  return JSON.parse(localStorage.getItem(`${localStoragePrefix}${key}`) ?? "");
+});
+
+TaskPort.register("localStorageRemove", async (key: string) => {
+  localStorage.removeItem(`${localStoragePrefix}${key}`);
+});
+
 const getRandomInts = (n: number) => {
   const randInts = new Uint32Array(n);
   crypto.getRandomValues(randInts);

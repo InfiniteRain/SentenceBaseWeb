@@ -2,11 +2,14 @@ module Port exposing
     ( googleGetToken
     , googleGetTokenRefresh
     , googleInitialize
+    , localStorageGet
+    , localStorageRemove
+    , localStorageSet
     , readClipboard
     , timeout
     )
 
-import Json.Decode as Decode
+import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
 import TaskPort
 
@@ -75,3 +78,41 @@ timeout id time =
                     ]
         }
         ()
+
+
+
+-- LOCAL STORAGE
+
+
+localStorageSet : String -> Encode.Value -> TaskPort.Task ()
+localStorageSet key =
+    TaskPort.call
+        { function = "localStorageSet"
+        , valueDecoder = Decode.succeed ()
+        , argsEncoder =
+            \value ->
+                Encode.object
+                    [ ( "key", Encode.string key )
+                    , ( "value", value )
+                    ]
+        }
+
+
+localStorageGet : String -> Decoder a -> TaskPort.Task a
+localStorageGet key decoder =
+    TaskPort.call
+        { function = "localStorageGet"
+        , valueDecoder = decoder
+        , argsEncoder = Encode.string
+        }
+        key
+
+
+localStorageRemove : String -> TaskPort.Task ()
+localStorageRemove key =
+    TaskPort.call
+        { function = "localStorageRemove"
+        , valueDecoder = Decode.succeed ()
+        , argsEncoder = Encode.string
+        }
+        key

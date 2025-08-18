@@ -127,11 +127,11 @@ classes =
 
 
 
--- DIALOG
+-- CUSTOM
 
 
 modalDialog : Bool -> msg -> List (Attribute msg) -> List (Html msg) -> Html msg
-modalDialog isOpen msg attributes children =
+modalDialog isOpen onCloseMsg attributes children =
     node "dialog"
         (attributes
             ++ (if isOpen then
@@ -150,7 +150,7 @@ modalDialog isOpen msg attributes children =
                 , "opacity-50"
                 , "z-15"
                 ]
-            , onClick msg
+            , onClick onCloseMsg
             ]
             []
             :: children
