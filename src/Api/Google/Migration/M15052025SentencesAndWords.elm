@@ -64,6 +64,7 @@ createSubSheetsTask =
                     , ( "tags", Tags )
                     , ( "added_at", Timestamp )
                     ]
+              , additionalColumnsCount = 0
               }
             , { id = 300
               , name = "mined_sentences"
@@ -74,6 +75,7 @@ createSubSheetsTask =
                     , ( "batch_id", Id )
                     , ( "mined_at", Timestamp )
                     ]
+              , additionalColumnsCount = 0
               }
             , { id = 400
               , name = "mined_words"
@@ -81,6 +83,7 @@ createSubSheetsTask =
                     [ ( "word", Word )
                     , ( "mined_at", Timestamp )
                     ]
+              , additionalColumnsCount = 0
               }
             , { id = 500
               , name = "backlog_sentences"
@@ -90,6 +93,7 @@ createSubSheetsTask =
                     , ( "tags", Tags )
                     , ( "backlogged_at", Timestamp )
                     ]
+              , additionalColumnsCount = 0
               }
             ]
         )

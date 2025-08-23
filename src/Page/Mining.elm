@@ -64,7 +64,6 @@ import Html.Attributes
         , hidden
         , id
         , placeholder
-        , style
         , type_
         , value
         )
@@ -423,7 +422,7 @@ update msg ({ mining, overview } as model) =
             , addRequest
                 { word = mining.selected |> Maybe.withDefault ""
                 , sentence = mining.sentence
-                , tags = []
+                , tags = mining.tags
                 }
                 |> Task.sheetsAttempt AddFetched
                 |> Effect.google
@@ -1757,7 +1756,6 @@ miningTabView { mining } =
                     , "overflow-auto"
                     , "basis-0"
                     ]
-                , style "min-height" "0"
                 ]
             <|
                 List.concat
@@ -1916,7 +1914,7 @@ dictionaryView maybeWord definitionState =
 
 notFoundView : Html Msg
 notFoundView =
-    div [ classes [ "alert-destructive", "mt-4" ] ]
+    div [ classes [ "alert", "text-amber-500", "mt-4" ] ]
         [ warningCircleIcon []
         , h2 [] [ text "Unable to find word definition." ]
         ]
@@ -2133,7 +2131,8 @@ overviewSentenceView ({ overview } as model) index sentence =
                     Set.member index overview.selected
              in
              [ classes
-                [ "input checked:bg-blue-600"
+                [ "input"
+                , "checked:bg-blue-600"
                 , "checked:border-blue-600"
                 , "dark:checked:bg-blue-700"
                 , "dark:checked:border-blue-700"
@@ -2142,7 +2141,11 @@ overviewSentenceView ({ overview } as model) index sentence =
              , type_ "checkbox"
              , checked isChecked
              , onCheck (\_ -> SentenceChecked index)
-             , disabled (not isChecked && isSelectionReady model)
+             , disabled
+                ((not isChecked && isSelectionReady model)
+                    || overview.confirmState
+                    == ConfirmLoading
+                )
              ]
             )
             []

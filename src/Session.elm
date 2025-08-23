@@ -6,9 +6,12 @@ module Session exposing
     , isAuthed
     , navKey
     , replaceUrl
+    , replaceZone
+    , zone
     )
 
 import Browser.Navigation as Nav
+import Time
 import Url exposing (Url)
 
 
@@ -21,6 +24,7 @@ type Session
         { navKey : Nav.Key
         , currentUrl : Url
         , isAuthed : Bool
+        , zone : Time.Zone
         }
 
 
@@ -43,16 +47,22 @@ isAuthed (Session session) =
     session.isAuthed
 
 
+zone : Session -> Time.Zone
+zone (Session session) =
+    session.zone
+
+
 
 -- TRANSFORMERS
 
 
-create : Nav.Key -> Url -> Session
-create key url =
+create : Nav.Key -> Url -> Time.Zone -> Session
+create key url timeZone =
     Session
         { navKey = key
         , isAuthed = False
         , currentUrl = url
+        , zone = timeZone
         }
 
 
@@ -64,3 +74,8 @@ replaceUrl url (Session session) =
 authenticate : Session -> Session
 authenticate (Session session) =
     Session { session | isAuthed = True }
+
+
+replaceZone : Time.Zone -> Session -> Session
+replaceZone timeZone (Session session) =
+    Session { session | zone = timeZone }

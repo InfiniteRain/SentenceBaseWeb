@@ -1,6 +1,7 @@
 import { Elm } from "./Main.elm";
 import * as TaskPort from "elm-taskport";
 import "./style.css";
+import { Model, Deck, Package } from "./genanki";
 
 const CLIENT_ID = import.meta.env.VITE_CLIENT_ID;
 const SCOPES = [
@@ -170,3 +171,34 @@ Elm.Main.init({
     seed4: randomInts[3],
   },
 });
+
+var m = new Model({
+  name: "Basic (and reversed card)",
+  id: "1543634829843",
+  flds: [{ name: "Front" }, { name: "Back" }],
+  req: [
+    [0, "all", [0]],
+    [1, "all", [1]],
+  ],
+  tmpls: [
+    {
+      name: "Card 1",
+      qfmt: "{{Front}}",
+      afmt: "{{FrontSide}}\n\n<hr id=answer>\n\n{{Back}}",
+    },
+    {
+      name: "Card 2",
+      qfmt: "{{Back}}",
+      afmt: "{{FrontSide}}\n\n<hr id=answer>\n\n{{Front}}",
+    },
+  ],
+});
+
+var d = new Deck(1276438724672, "Test Deck");
+
+d.addNote(m.note(["this is front", "this is back"]));
+
+var p = new Package();
+p.addDeck(d);
+
+p.writeToFile("deck.apkg");

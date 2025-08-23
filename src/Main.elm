@@ -67,6 +67,7 @@ import Route exposing (Route(..), standardizeFragment)
 import Session exposing (Session)
 import Task
 import TaskPort
+import Time
 import Toast
 import Triple
 import UUID as UuidLib
@@ -249,6 +250,19 @@ pageToSession page =
             session
 
 
+mapPageSession : Session -> PageModel -> PageModel
+mapPageSession session page =
+    case page of
+        Auth model ->
+            Auth { model | session = session }
+
+        Mining model ->
+            Mining { model | session = session }
+
+        Batches model ->
+            Batches { model | session = session }
+
+
 initAuth : Session -> ( PageModel, Cmd Msg, Effect Msg )
 initAuth session =
     initPageWith
@@ -319,7 +333,7 @@ init seeds url navKey =
             initApi seeds
 
         session =
-            Session.create navKey url
+            Session.create navKey url Time.utc
 
         ( pageModel, pageCmd, pageEffect ) =
             initPage session
@@ -341,6 +355,7 @@ init seeds url navKey =
             [ [ initialPageCmd
               , apiCmd
               , pageCmd
+              , Task.perform ZoneFetched Time.here
               ]
             , if Route.fromUrl url /= Just Route.Root then
                 [ Route.navigate session Route.Root
@@ -376,7 +391,8 @@ initPageWith session initFn toMsg toModel =
 
 
 type Msg
-    = UrlChanged Url
+    = ZoneFetched Time.Zone
+    | UrlChanged Url
     | LinkClicked Browser.UrlRequest
     | GotApiMsg ApiMsg
     | GotPageMsg PageMsg
@@ -394,6 +410,13 @@ update msg model =
             pageToSession model.page
     in
     case ( msg, model.page ) of
+        ( ZoneFetched zone, page ) ->
+            ( { model
+                | page = mapPageSession (Session.replaceZone zone session) page
+              }
+            , Cmd.none
+            )
+
         ( UrlChanged url, _ ) ->
             routeToPage (Route.fromUrl url) (Session.replaceUrl url session)
                 |> Triple.mapFirst (\page -> { model | page = page })

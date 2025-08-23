@@ -6,6 +6,7 @@ module Api.Google.ListConstructor exposing
     , cellStringValue
     , constructFromList
     , extract
+    , extractWithRest
     , field
     )
 
@@ -56,6 +57,12 @@ field map (ListConstructor { list, maybeConstructor }) =
                         |> Maybe.map constructor
                 }
 
+        ( _ :: rest, Nothing ) ->
+            ListConstructor
+                { list = rest
+                , maybeConstructor = Nothing
+                }
+
         _ ->
             ListConstructor
                 { list = list
@@ -70,6 +77,11 @@ field map (ListConstructor { list, maybeConstructor }) =
 extract : ListConstructor elem constr -> Maybe constr
 extract (ListConstructor { maybeConstructor }) =
     maybeConstructor
+
+
+extractWithRest : ListConstructor elem constr -> ( Maybe constr, List elem )
+extractWithRest (ListConstructor { maybeConstructor, list }) =
+    ( maybeConstructor, list )
 
 
 

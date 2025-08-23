@@ -9,6 +9,7 @@ import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Exchange.Sheets as Sheets
     exposing
         ( RequestBatchUpdateKind(..)
+        , RequestDimension(..)
         , ResponseCellExtendedData(..)
         )
 import Api.Google.Exchange.Task as Task
@@ -82,6 +83,7 @@ update msg model =
                     [ ( "name", MigrationName )
                     , ( "applied_at", Timestamp )
                     ]
+                , additionalColumnsCount = 0
                 }
             )
 
@@ -107,6 +109,7 @@ update msg model =
                 { id = 0
                 , name = "query"
                 , columns = []
+                , additionalColumnsCount = desiredQueryColumnCount
                 }
             )
 
@@ -114,7 +117,21 @@ update msg model =
             ( model, Effect.fail err )
 
         GotQuerySubSheetDataResponse (Ok response) ->
-            if extractTitle response == Just querySheetName then
+            let
+                title =
+                    extractTitle response
+                        |> Maybe.withDefault ""
+
+                columnCount =
+                    extractColumnCount response
+                        |> Maybe.withDefault 0
+            in
+            if
+                title
+                    == querySheetName
+                    && columnCount
+                    >= desiredQueryColumnCount
+            then
                 ( model
                 , Effect.doneWithPayload model.appliedMigrations
                 )
@@ -122,15 +139,32 @@ update msg model =
             else
                 ( model
                 , Sheets.batchUpdateRequest
-                    [ RequestUpdateSheetProperties
-                        { properties =
-                            { sheetId = Just querySheetId
-                            , title = Just querySheetName
-                            , gridProperties = Nothing
-                            }
-                        , fields = "title"
-                        }
-                    ]
+                    (List.concat
+                        [ if title /= querySheetName then
+                            [ RequestUpdateSheetProperties
+                                { properties =
+                                    { sheetId = Just querySheetId
+                                    , title = Just querySheetName
+                                    , gridProperties = Nothing
+                                    }
+                                , fields = "title"
+                                }
+                            ]
+
+                          else
+                            []
+                        , if columnCount < desiredQueryColumnCount then
+                            [ RequestAppendDimension
+                                { sheetId = querySheetId
+                                , dimension = RequestColumns
+                                , length = desiredQueryColumnCount - columnCount
+                                }
+                            ]
+
+                          else
+                            []
+                        ]
+                    )
                     |> Effect.sheetsTask GotRenameQuerySubSheetEffect
                 )
 
@@ -198,10 +232,17 @@ maybeConstructAppliedMigration =
 
 
 extractTitle : Sheets.ResponseGetSubSheetData -> Maybe String
-extractTitle sheetData =
-    sheetData.sheets
-        |> List.head
-        |> Maybe.map (.properties >> .title)
+extractTitle =
+    .sheets
+        >> List.head
+        >> Maybe.map (.properties >> .title)
+
+
+extractColumnCount : Sheets.ResponseGetSubSheetData -> Maybe Int
+extractColumnCount =
+    .sheets
+        >> List.head
+        >> Maybe.map (.properties >> .gridProperties >> .columnCount)
 
 
 
@@ -231,3 +272,8 @@ querySheetName =
 querySheetId : Int
 querySheetId =
     0
+
+
+desiredQueryColumnCount : Int
+desiredQueryColumnCount =
+    100

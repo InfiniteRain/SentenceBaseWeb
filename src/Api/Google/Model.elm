@@ -2,6 +2,7 @@ module Api.Google.Model exposing
     ( MinedSentence
     , PendingSentence
     , fromGridData
+    , fromGridDataMatrix
     )
 
 import Api.Google.Exchange.Sheets as Sheets
@@ -50,3 +51,47 @@ fromGridData maybeConstructor =
                 >> maybeConstructor
             )
         >> List.filterMap identity
+
+
+fromGridDataMatrix :
+    (List Sheets.ResponseCellData -> ( Maybe a, List Sheets.ResponseCellData ))
+    -> Sheets.ResponseGetSubSheetData
+    -> List (List a)
+fromGridDataMatrix maybeConstructor =
+    .sheets
+        >> List.head
+        >> Maybe.map .data
+        >> Maybe.andThen List.head
+        >> Maybe.andThen .rowData
+        >> Maybe.withDefault []
+        >> List.map
+            (.values
+                >> Maybe.withDefault []
+                >> maybeConstructor
+            )
+        >> List.unzip
+        >> Tuple.mapFirst (\a -> [ a ])
+        >> formGridDataMatrixAux maybeConstructor
+
+
+formGridDataMatrixAux :
+    (List Sheets.ResponseCellData -> ( Maybe a, List Sheets.ResponseCellData ))
+    -> ( List (List (Maybe a)), List (List Sheets.ResponseCellData) )
+    -> List (List a)
+formGridDataMatrixAux maybeConstructor ( parsed, rows ) =
+    case
+        List.map maybeConstructor rows
+            |> List.unzip
+    of
+        ( _, [] ) ->
+            []
+
+        ( newParsed, [] :: _ ) ->
+            (newParsed :: parsed)
+                |> List.map (List.filterMap identity)
+                |> List.filter (not << List.isEmpty)
+                |> List.reverse
+
+        ( newParsed, restRows ) ->
+            formGridDataMatrixAux maybeConstructor
+                ( newParsed :: parsed, restRows )

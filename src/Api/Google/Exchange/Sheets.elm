@@ -6,6 +6,7 @@ module Api.Google.Exchange.Sheets exposing
     , ResponseCellData
     , ResponseCellExtendedData(..)
     , ResponseGetSubSheetData
+    , ResponseRowData
     , SubSheet
     , addSubSheetRequests
     , batchUpdateAndGetGridDataRequest
@@ -29,15 +30,27 @@ import Url.Builder exposing (QueryParameter, crossOrigin, string)
 -- DECODERS
 
 
+type alias ResponseGridProperties =
+    { columnCount : Int }
+
+
+responseGridPropertiesDecoder : Decoder ResponseGridProperties
+responseGridPropertiesDecoder =
+    Decode.map ResponseGridProperties
+        (Decode.field "columnCount" Decode.int)
+
+
 type alias ResponseProperties =
-    { sheetId : Int
+    { gridProperties : ResponseGridProperties
+    , sheetId : Int
     , title : String
     }
 
 
 responsePropertiesDecoder : Decoder ResponseProperties
 responsePropertiesDecoder =
-    Decode.map2 ResponseProperties
+    Decode.map3 ResponseProperties
+        (Decode.field "gridProperties" responseGridPropertiesDecoder)
         (Decode.field "sheetId" Decode.int)
         (Decode.field "title" Decode.string)
 
@@ -417,6 +430,11 @@ type RequestBatchUpdateKind
         { range : RequestGridRange
         , comparisonColumns : List RequestDimensionRange
         }
+    | RequestAppendDimension
+        { sheetId : Int
+        , dimension : RequestDimension
+        , length : Int
+        }
 
 
 requestBatchUpdateKindEncoder : RequestBatchUpdateKind -> Encode.Value
@@ -524,6 +542,16 @@ requestBatchUpdateKindEncoder kind =
                   )
                 ]
 
+            RequestAppendDimension { sheetId, dimension, length } ->
+                [ ( "appendDimension"
+                  , Encode.object
+                        [ ( "sheetId", Encode.int sheetId )
+                        , ( "dimension", requestDimensionEncoder dimension )
+                        , ( "length", Encode.int length )
+                        ]
+                  )
+                ]
+
 
 type alias RequestBatchUpdate =
     { requests : List RequestBatchUpdateKind
@@ -569,7 +597,11 @@ getSubSheetDataRequest ranges =
                     (googleSheetsRoute [ sheetId ++ ":getByDataFilter" ])
                     [ string
                         "fields"
-                        "sheets(properties(sheetId,title),data.rowData.values.effectiveValue)"
+                        ("sheets"
+                            ++ "(properties"
+                            ++ "(sheetId,title,gridProperties.columnCount)"
+                            ++ ",data.rowData.values.effectiveValue)"
+                        )
                     ]
             , body =
                 Http.jsonBody
@@ -622,8 +654,9 @@ batchUpdateAndGetGridDataRequest kinds responseRanges =
                     [ string
                         "fields"
                         ("updatedSpreadsheet.sheets"
-                            ++ "(properties(sheetId,title),data.rowData"
-                            ++ ".values.effectiveValue)"
+                            ++ "(properties"
+                            ++ "(sheetId,title,gridProperties.columnCount)"
+                            ++ ",data.rowData.values.effectiveValue)"
                         )
                     ]
             , body =
@@ -671,6 +704,7 @@ type alias SubSheet column =
     { id : Int
     , name : String
     , columns : List ( String, column )
+    , additionalColumnsCount : Int
     }
 
 
@@ -682,59 +716,71 @@ addSubSheetRequests columnSize subSheets =
     List.concat
         [ List.concatMap
             (\subSheet ->
-                [ RequestAddSheet
-                    { properties =
-                        { sheetId = Just subSheet.id
-                        , title = Just subSheet.name
-                        , gridProperties =
-                            Just
-                                { frozenRowCount = Just 1
-                                , frozenColumnCount = Just 0
-                                }
-                        }
-                    }
-                , RequestUpdateCells
-                    { rows =
-                        [ { values =
-                                List.map
-                                    (\( name, _ ) ->
-                                        { userEnteredValue =
-                                            RequestString name
+                List.concat
+                    [ [ RequestAddSheet
+                            { properties =
+                                { sheetId = Just subSheet.id
+                                , title = Just subSheet.name
+                                , gridProperties =
+                                    Just
+                                        { frozenRowCount = Just 1
+                                        , frozenColumnCount = Just 0
                                         }
-                                    )
-                                    subSheet.columns
-                          }
-                        ]
-                    , fields = "userEnteredValue"
-                    , range =
-                        { sheetId = subSheet.id
-                        , startRowIndex = Just 0
-                        , startColumnIndex = Just 0
-                        , endRowIndex = Just 1
-                        , endColumnIndex = Just <| List.length subSheet.columns
-                        }
-                    }
-                , RequestSetDataValidation
-                    { range =
-                        { sheetId = subSheet.id
-                        , startRowIndex = Just 1
-                        , endRowIndex = Nothing
-                        , startColumnIndex = Just 0
-                        , endColumnIndex = Just <| List.length subSheet.columns
-                        }
-                    , rule =
-                        { condition =
-                            { type_ = "CUSTOM_FORMULA"
-                            , values =
-                                [ { userEnteredValue =
-                                        validationFormula subSheet.columns
+                                }
+                            }
+                      , RequestUpdateCells
+                            { rows =
+                                [ { values =
+                                        List.map
+                                            (\( name, _ ) ->
+                                                { userEnteredValue =
+                                                    RequestString name
+                                                }
+                                            )
+                                            subSheet.columns
                                   }
                                 ]
+                            , fields = "userEnteredValue"
+                            , range =
+                                { sheetId = subSheet.id
+                                , startRowIndex = Just 0
+                                , startColumnIndex = Just 0
+                                , endRowIndex = Just 1
+                                , endColumnIndex = Just <| List.length subSheet.columns
+                                }
                             }
-                        , strict = True
-                        }
-                    }
-                ]
+                      , RequestSetDataValidation
+                            { range =
+                                { sheetId = subSheet.id
+                                , startRowIndex = Just 1
+                                , endRowIndex = Nothing
+                                , startColumnIndex = Just 0
+                                , endColumnIndex = Just <| List.length subSheet.columns
+                                }
+                            , rule =
+                                { condition =
+                                    { type_ = "CUSTOM_FORMULA"
+                                    , values =
+                                        [ { userEnteredValue =
+                                                validationFormula subSheet.columns
+                                          }
+                                        ]
+                                    }
+                                , strict = True
+                                }
+                            }
+                      ]
+                    , if subSheet.additionalColumnsCount > 0 then
+                        [ RequestAppendDimension
+                            { sheetId = subSheet.id
+                            , dimension = RequestColumns
+                            , length = subSheet.additionalColumnsCount
+                            }
+                        ]
+
+                      else
+                        []
+                    ]
             )
             subSheets
         , List.concatMap

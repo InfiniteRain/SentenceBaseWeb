@@ -257,8 +257,8 @@ errorToMessage error =
                 BadStatus status ->
                     "Bad response status code: " ++ String.fromInt status ++ "."
 
-                BadBody _ ->
-                    "Received invalid body."
+                BadBody info ->
+                    "Received invalid body: " ++ info
 
         TokenAcquisitionError taError ->
             case taError of
