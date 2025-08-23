@@ -154,6 +154,65 @@ TaskPort.register("localStorageRemove", async (key: string) => {
   localStorage.removeItem(`${localStoragePrefix}${key}`);
 });
 
+type AnkiModel = {
+  id: number;
+  name: string;
+  fields: { name: string }[];
+  templates: { name: string | null; frontHtml: string; backHtml: string }[];
+  styling: string;
+};
+
+type AnkiExportArg = {
+  deck: {
+    id: number;
+    name: string;
+    models: {
+      [_: number]: AnkiModel;
+    };
+    notes: {
+      [_: number]: string[][];
+    };
+  };
+  fileName: string;
+};
+
+TaskPort.register("ankiExport", async (config: AnkiExportArg) => {
+  const models = new Map<string, Model>();
+
+  for (const [key, { name, fields, templates, styling }] of Object.entries(
+    config.deck.models,
+  )) {
+    models.set(
+      key,
+      new Model({
+        name,
+        id: key,
+        flds: fields,
+        req: [],
+        tmpls: templates.map((template) => ({
+          ...(template.name !== null ? { name: template.name } : {}),
+          qfmt: template.frontHtml,
+          afmt: template.backHtml,
+        })),
+        css: styling,
+      }),
+    );
+  }
+
+  const deck = new Deck(config.deck.id, config.deck.name);
+
+  for (const [key, notes] of Object.entries(config.deck.notes)) {
+    for (const note of notes) {
+      deck.addNote(models.get(key)!.note(note));
+    }
+  }
+
+  const ankiPackage = new Package();
+
+  ankiPackage.addDeck(deck);
+  ankiPackage.writeToFile(config.fileName);
+});
+
 const getRandomInts = (n: number) => {
   const randInts = new Uint32Array(n);
   crypto.getRandomValues(randInts);
@@ -171,34 +230,3 @@ Elm.Main.init({
     seed4: randomInts[3],
   },
 });
-
-var m = new Model({
-  name: "Basic (and reversed card)",
-  id: "1543634829843",
-  flds: [{ name: "Front" }, { name: "Back" }],
-  req: [
-    [0, "all", [0]],
-    [1, "all", [1]],
-  ],
-  tmpls: [
-    {
-      name: "Card 1",
-      qfmt: "{{Front}}",
-      afmt: "{{FrontSide}}\n\n<hr id=answer>\n\n{{Back}}",
-    },
-    {
-      name: "Card 2",
-      qfmt: "{{Back}}",
-      afmt: "{{FrontSide}}\n\n<hr id=answer>\n\n{{Front}}",
-    },
-  ],
-});
-
-var d = new Deck(1276438724672, "Test Deck");
-
-d.addNote(m.note(["this is front", "this is back"]));
-
-var p = new Package();
-p.addDeck(d);
-
-p.writeToFile("deck.apkg");

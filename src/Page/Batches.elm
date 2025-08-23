@@ -1,5 +1,6 @@
 module Page.Batches exposing (Model, Msg(..), init, subscriptions, update, view)
 
+import Anki exposing (ModelRequiredKind(..))
 import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Exchange.Sheets as Sheets
     exposing
@@ -26,7 +27,9 @@ import Html.Events exposing (onClick)
 import Icon.Info exposing (infoIcon)
 import Icon.WarningCircle exposing (warningCircleIcon)
 import Json.Decode as Decode
+import List exposing (all)
 import Session exposing (Session)
+import Task as PlatformTask
 import Time exposing (Month(..))
 
 
@@ -69,6 +72,8 @@ init session =
 type Msg
     = GetFetched (Result Task.Error (List (List Model.MinedSentence)))
     | LoadMoreClicked
+    | BatchClicked (List Model.MinedSentence)
+    | NoOp
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Effect Msg )
@@ -96,6 +101,32 @@ update msg model =
             , Cmd.none
             , getBatchesEffect model.currentPage
             )
+
+        BatchClicked batch ->
+            ( model
+            , Anki.export
+                "export.apkg"
+                (Anki.addNotes
+                    (List.map
+                        (\sentence ->
+                            [ sentence.sentence
+                            , ""
+                            , sentence.word
+                            , ""
+                            , ""
+                            ]
+                        )
+                        batch
+                    )
+                    ankiModel
+                    ankiDeck
+                )
+                |> PlatformTask.attempt (\_ -> NoOp)
+            , Effect.none
+            )
+
+        NoOp ->
+            ( model, Cmd.none, Effect.none )
 
 
 getBatchesRequest : Int -> Task.SheetsTask (List (List Model.MinedSentence))
@@ -378,7 +409,9 @@ batchView model batch =
             ]
         ]
         [ button
-            [ type_ "button" ]
+            [ type_ "button"
+            , onClick (BatchClicked batch)
+            ]
             []
         , div [ classes [ "grid", "gap-2" ] ] <|
             [ h2
@@ -466,5 +499,113 @@ monthToString month =
 
 pageSize : Int
 pageSize =
-    -- 10
-    5
+    10
+
+
+ankiModel : Anki.Model
+ankiModel =
+    { id = 1755984462852
+    , name = "Sentence Base Model"
+    , fields =
+        [ { name = "Sentence" }
+        , { name = "Sentence Translation" }
+        , { name = "Word" }
+        , { name = "Word Definition" }
+        , { name = "Sentence Audio" }
+        ]
+    , templates =
+        [ { name = Nothing
+          , frontHtml = String.trim """
+<div class="body front-notice">Audio Only</div>
+
+<div class="footer">{{Sentence Audio}}</div>
+"""
+          , backHtml = String.trim """
+<div class="body">
+  <div class="sentence">
+    <div class="bigger">{{Sentence}}</div>
+    <div class="bigger">{{Sentence Translation}}</div>
+  </div>
+  <hr />
+  <div class="bigger">{{Word}}</div>
+  <div class="definition">{{Word Definition}}</div>
+</div>
+
+<div class="footer">{{Sentence Audio}}</div>
+"""
+          }
+        ]
+    , styling = String.trim """
+html,
+body,
+body>div {
+  padding: 0;
+  margin: 0;
+  height: 100%;
+}
+
+.body {
+  overflow: auto;
+  text-align: center;
+  height: calc(100% - 64px);
+}
+
+.footer {
+  position: absolute;
+  bottom: 0;
+  height: 48px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.front-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-style: italic;
+  color: #7e7f7a;
+}
+
+.bigger {
+  font-size: 32px;
+}
+
+.sentence div {
+  margin: 16px;
+}
+
+.definition {
+  text-align: start;
+  padding: 16px 48px 0 64px;
+}
+
+.definition ul {
+  list-style: square;
+  margin: 8px 0 0 0;
+}
+
+.definition ul:last-child {
+  margin-bottom: 8px;
+}
+
+.definition li {
+  margin-bottom: 4px;
+}
+
+.definition .etimology {
+  font-size: 18px;
+  margin-top: 8px;
+}
+
+.definition {
+  font-size: 16px;
+}
+"""
+    }
+
+
+ankiDeck : Anki.Deck
+ankiDeck =
+    Anki.deck 1755984963683 "Sentence Base"
