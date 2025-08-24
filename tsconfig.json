@@ -23,5 +23,5 @@
     /* Misc */
     "allowJs": true
   },
-  "include": ["ts", "vite.config.ts", "ts/genanki.ts", "ts/vite-env.d.ts"]
+  "include": ["ts", "vite.config.ts", "ts/vite-env.d.ts"]
 }

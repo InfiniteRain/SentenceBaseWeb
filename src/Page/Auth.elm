@@ -105,9 +105,6 @@ initializeUpdateToStatusText initializeUpdate =
 
         Failed err ->
             case err of
-                ApiInitialization _ ->
-                    "Failed to initialize Google API"
-
                 ApiAuthentication _ ->
                     "Failed to authenticate Google API"
 

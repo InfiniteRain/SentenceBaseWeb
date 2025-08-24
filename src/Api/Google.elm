@@ -34,7 +34,6 @@ type alias Model rootMsg =
 
 type State
     = Uninitialized
-    | Initializing
     | Authenticating
     | SettingUpAppFolder
     | Migrating Migration.Model
@@ -76,22 +75,9 @@ update :
 update msg model =
     case ( model.state, msg ) of
         ( Uninitialized, SentAction (Initialize toMsg) ) ->
-            ( { model | state = Initializing, initializeMsg = Just toMsg }
-            , PlatformTask.attempt GotInitializedResult Port.googleInitialize
-            , sendInitializationUpdate InitializingApi toMsg
-            )
-
-        ( Initializing, GotInitializedResult (Ok ()) ) ->
-            ( { model | state = Authenticating }
+            ( { model | state = Authenticating, initializeMsg = Just toMsg }
             , PlatformTask.attempt GotAuthenticationResult Port.googleGetToken
             , maybeSendInitializationUpdate model AuthenticatingApi
-            )
-
-        ( Initializing, GotInitializedResult (Err err) ) ->
-            ( { model | state = Uninitialized }
-            , Cmd.none
-            , maybeSendInitializationUpdate model
-                (Failed <| ApiInitialization err)
             )
 
         ( Authenticating, GotAuthenticationResult (Ok _) ) ->
@@ -344,8 +330,7 @@ type InitializeUpdate
 
 
 type InitializeFailure
-    = ApiInitialization TaskPort.Error
-    | ApiAuthentication TaskPort.Error
+    = ApiAuthentication TaskPort.Error
     | AppFolderLocation Task.Error
     | AppFolderCreation Task.Error
     | MainSheetLocation Task.Error
