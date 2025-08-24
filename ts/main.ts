@@ -1,4 +1,4 @@
-import { Elm } from "./Main.elm";
+import { Elm } from "../src/Main.elm";
 import * as TaskPort from "elm-taskport";
 import "./style.css";
 import { Model, Deck, Package } from "./genanki";

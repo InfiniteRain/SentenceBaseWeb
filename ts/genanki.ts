@@ -1,15 +1,7 @@
 import { sha256 } from "js-sha256";
-import initSqlJs from "sql.js";
+import initSqlJs, { Database } from "sql.js";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-
-const sqlPromise = new Promise((resolve) => {
-  initSqlJs({
-    locateFile: () => `sql-wasm.wasm`,
-  }).then((sql) => {
-    resolve(sql);
-  });
-});
 
 /**
  * [mkanki]{@link https://github.com/nornagon/mkanki}
@@ -26,6 +18,78 @@ const sqlPromise = new Promise((resolve) => {
  * @copyright Copyright (c) 2021 Mani
  * @license AGPL-3.0 License
  */
+
+type AnkiModelField = {
+  name: string;
+  ord: number;
+  sticky: boolean;
+  rtl: boolean;
+  font: string;
+  size: number;
+  media: string[];
+};
+
+type AnkiModelTemplate = {
+  name: string;
+  ord: number;
+  qfmt: string;
+  afmt: string;
+  did: number | null;
+  bqfmt: string;
+  bafmt: string;
+};
+
+type AnkiModel = {
+  id: string;
+  name: string;
+  flds: AnkiModelField[];
+  tmpls: AnkiModelTemplate[];
+  req: [number, "all" | "any", number[]][];
+  css: string;
+  sortf: number;
+  did: number;
+  latexPre: string;
+  latexPost: string;
+  mod: number;
+  usn: number;
+  vers: string[];
+  type: number;
+  tags: string[];
+};
+
+export type ModelPropsField = {
+  name: string;
+};
+
+export type ModelPropsTemplate = {
+  name?: string;
+  qfmt: string;
+  afmt: string;
+};
+
+export type ModelProps = {
+  id: string;
+  name: string;
+  flds: ModelPropsField[];
+  tmpls: ModelPropsTemplate[];
+  req: [number, "all" | "any", number[]][];
+  css: string;
+};
+
+export type ClozeModelProps = {
+  id: string;
+  name: string;
+  flds: ModelPropsField[];
+  tmpl: ModelPropsTemplate;
+};
+
+const sqlPromise = new Promise<initSqlJs.SqlJsStatic>((resolve) => {
+  initSqlJs({
+    locateFile: () => `sql-wasm.wasm`,
+  }).then((sql) => {
+    resolve(sql);
+  });
+});
 
 const BASE91_TABLE = [
   "a",
@@ -121,7 +185,7 @@ const BASE91_TABLE = [
   "~",
 ];
 
-function ankiHash(fields) {
+function ankiHash(fields: string[]): string {
   const str = fields.join("__");
   const h = sha256.create();
   h.update(str);
@@ -136,7 +200,7 @@ function ankiHash(fields) {
   // convert to the weird base91 format that Anki uses
   let rv_reversed = [];
   while (hash_int > 0) {
-    rv_reversed.push(BASE91_TABLE[hash_int % 91n]);
+    rv_reversed.push(BASE91_TABLE[Number(hash_int % 91n)]);
     hash_int = hash_int / 91n;
   }
 
@@ -147,7 +211,11 @@ const MODEL_STD = 0;
 const MODEL_CLOZE = 1;
 
 export class Model {
-  constructor(props) {
+  props: AnkiModel;
+  fieldNameToOrd: Record<string, number>;
+
+  constructor(props: ModelProps) {
+    console.log(props);
     this.props = {
       ...defaultModel,
       ...props,
@@ -166,32 +234,26 @@ export class Model {
     });
   }
 
-  note(fields, tags, guid = null) {
-    if (Array.isArray(fields)) {
-      if (fields.length !== this.props.flds.length) {
-        throw new Error(
-          `Expected ${this.props.flds.length} fields for model '${this.props.name}' but got ${fields.length}`,
-        );
-      }
-      return new Note(this, fields, tags, guid);
-    } else {
-      const field_names = Object.keys(fields);
-      const fields_list = [];
-      field_names.forEach((field_name) => {
-        const ord = this.fieldNameToOrd[field_name];
-        if (ord == null)
-          throw new Error(`Field '${field_name}' does not exist in the model`);
-        fields_list[ord] = fields[field_name];
-      });
-      return new Note(this, fields_list, tags, guid);
+  note(
+    fields: string[],
+    tags: string[] | null = null,
+    guid: string | null = null,
+  ): Note {
+    if (fields.length !== this.props.flds.length) {
+      throw new Error(
+        `Expected ${
+          this.props.flds.length
+        } fields for model '${this.props.name}' but got ${fields.length}`,
+      );
     }
+
+    return new Note(this, fields, tags, guid);
   }
 }
 
 export class ClozeModel extends Model {
-  constructor(props) {
+  constructor(props: ClozeModelProps) {
     super({
-      type: MODEL_CLOZE,
       css: `
          .card {
            font-family: arial;
@@ -207,8 +269,11 @@ export class ClozeModel extends Model {
          }
        `,
       tmpls: [{ name: "Cloze", ...props.tmpl }],
+      req: [],
       ...props,
     });
+
+    this.props.type = MODEL_CLOZE;
   }
 }
 
@@ -266,8 +331,6 @@ const defaultTemplate = {
 
 // whether new cards should be mixed with reviews, or shown first or last
 const NEW_CARDS_DISTRIBUTE = 0;
-const NEW_CARDS_LAST = 1;
-const NEW_CARDS_FIRST = 2;
 
 const defaultConf = {
   // review options
@@ -288,7 +351,6 @@ const defaultConf = {
 };
 
 // new card insertion order
-const NEW_CARDS_RANDOM = 0;
 const NEW_CARDS_DUE = 1;
 
 const STARTING_FACTOR = 2500;
@@ -348,36 +410,52 @@ const defaultDeck = {
 };
 
 export class Deck {
-  constructor(id, name, desc = "") {
+  id: number;
+  name: string;
+  desc: string;
+  notes: Note[];
+
+  constructor(id: number, name: string, desc: string = "") {
     this.id = id;
     this.name = name;
     this.desc = desc;
     this.notes = [];
   }
 
-  addNote(note) {
+  addNote(note: Note): void {
     this.notes.push(note);
   }
 }
 
 export class Note {
-  constructor(model, fields, tags = null, guid = null) {
+  #guid: string | null;
+
+  model: Model;
+  fields: string[];
+  tags: string[] | null;
+
+  constructor(
+    model: Model,
+    fields: string[],
+    tags: string[] | null = null,
+    guid: string | null = null,
+  ) {
     this.model = model;
     this.fields = fields;
     this.tags = tags;
-    this._guid = guid;
+    this.#guid = guid;
   }
 
-  get guid() {
-    return this._guid ? this._guid : ankiHash(this.fields);
+  get guid(): string {
+    return this.#guid ? this.#guid : ankiHash(this.fields);
   }
 
-  get cards() {
+  get cards(): number[] {
     if (this.model.props.type === MODEL_STD) {
-      const isEmpty = (f) => {
+      const isEmpty = (f: string) => {
         return !f || f.toString().trim().length === 0;
       };
-      const rv = [];
+      const rv: number[] = [];
       for (const [card_ord, any_or_all, required_field_ords] of this.model.props
         .req) {
         const op = any_or_all === "any" ? "some" : "every";
@@ -388,7 +466,7 @@ export class Note {
       return rv;
     } else {
       // the below logic is copied from anki's ModelManager._availClozeOrds
-      const ords = new Set();
+      const ords = new Set<number>();
       const matches = [];
       const curliesRe = /{{[^}]*?cloze:(?:[^}]?:)*(.+?)}}/g;
       const percentRe = /<%cloze:(.+?)%>/g;
@@ -396,7 +474,7 @@ export class Note {
       let m;
       while ((m = curliesRe.exec(qfmt))) matches.push(m[1]);
       while ((m = percentRe.exec(qfmt))) matches.push(m[1]);
-      const map = {};
+      const map: Record<string, [number, AnkiModelField]> = {};
       this.model.props.flds.forEach((fld, i) => {
         map[fld.name] = [i, fld];
       });
@@ -419,24 +497,27 @@ export class Note {
 }
 
 export class Package {
+  decks: Deck[];
+  media: ({ name: string; data: Blob } | { name: string; filename: string })[];
+
   constructor() {
     this.decks = [];
     this.media = [];
   }
 
-  addDeck(deck) {
+  addDeck(deck: Deck): void {
     this.decks.push(deck);
   }
 
-  addMedia(data, name) {
+  addMedia(data: Blob, name: string): void {
     this.media.push({ name, data });
   }
 
-  addMediaFile(filename, name = null) {
+  addMediaFile(filename: string, name: string | null = null): void {
     this.media.push({ name: name || filename, filename });
   }
 
-  writeToFile(filename) {
+  writeToFile(filename: string): void {
     sqlPromise.then((sql) => {
       var db = new sql.Database();
       db.run(APKG_SCHEMA);
@@ -450,10 +531,10 @@ export class Package {
 
       zip.file("collection.anki2", buffer);
 
-      const media_info = {};
+      const media_info: Record<number, string> = {};
 
       this.media.forEach((m, i) => {
-        if (m.filename != null) {
+        if ("filename" in m) {
           zip.file(i.toString(), m.filename);
         } else {
           zip.file(i.toString(), m.data);
@@ -472,13 +553,15 @@ export class Package {
     });
   }
 
-  write(db) {
+  write(db: Database): void {
+    const defaultDeckToAdd = { ...defaultDeck, id: 1, name: "Default" };
+
     const now = new Date();
-    const models = {};
-    const decks = {};
+    const models: Record<string, AnkiModel> = {};
+    const decks: Record<string, typeof defaultDeckToAdd> = {};
 
     // AnkiDroid failed to import subdeck, So add a Default deck
-    decks["1"] = { ...defaultDeck, id: 1, name: "Default" };
+    decks["1"] = defaultDeckToAdd;
 
     this.decks.forEach((d) => {
       d.notes.forEach((n) => (models[n.model.props.id] = n.model.props));
@@ -634,112 +717,4 @@ CREATE INDEX ix_cards_sched on cards (did, queue, due);
 CREATE INDEX ix_revlog_cid on revlog (cid);
 CREATE INDEX ix_notes_csum on notes (csum);
 COMMIT;
-`;
-
-var APKG_COL = `
-INSERT INTO col VALUES(
-    null,
-    1411124400,
-    1425279151694,
-    1425279151690,
-    11,
-    0,
-    0,
-    0,
-    '{
-        "activeDecks": [
-            1
-        ],
-        "addToCur": true,
-        "collapseTime": 1200,
-        "curDeck": 1,
-        "curModel": "1425279151691",
-        "dueCounts": true,
-        "estTimes": true,
-        "newBury": true,
-        "newSpread": 0,
-        "nextPos": 1,
-        "sortBackwards": false,
-        "sortType": "noteFld",
-        "timeLim": 0
-    }',
-    '{}',
-    '{
-        "1": {
-            "collapsed": false,
-            "conf": 1,
-            "desc": "",
-            "dyn": 0,
-            "extendNew": 10,
-            "extendRev": 50,
-            "id": 1,
-            "lrnToday": [
-                0,
-                0
-            ],
-            "mod": 1425279151,
-            "name": "Default",
-            "newToday": [
-                0,
-                0
-            ],
-            "revToday": [
-                0,
-                0
-            ],
-            "timeToday": [
-                0,
-                0
-            ],
-            "usn": 0
-        }
-    }',
-    '{
-        "1": {
-            "autoplay": true,
-            "id": 1,
-            "lapse": {
-                "delays": [
-                    10
-                ],
-                "leechAction": 0,
-                "leechFails": 8,
-                "minInt": 1,
-                "mult": 0
-            },
-            "maxTaken": 60,
-            "mod": 0,
-            "name": "Default",
-            "new": {
-                "bury": true,
-                "delays": [
-                    1,
-                    10
-                ],
-                "initialFactor": 2500,
-                "ints": [
-                    1,
-                    4,
-                    7
-                ],
-                "order": 1,
-                "perDay": 20,
-                "separate": true
-            },
-            "replayq": true,
-            "rev": {
-                "bury": true,
-                "ease4": 1.3,
-                "fuzz": 0.05,
-                "ivlFct": 1,
-                "maxIvl": 36500,
-                "minSpace": 1,
-                "perDay": 100
-            },
-            "timer": 0,
-            "usn": 0
-        }
-    }',
-    '{}'
-);
 `;
