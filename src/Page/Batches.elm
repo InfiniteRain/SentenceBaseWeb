@@ -1,5 +1,7 @@
 module Page.Batches exposing (Model, Msg(..), init, subscriptions, update, view)
 
+-- MODEL
+
 import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Exchange.Sheets as Sheets
     exposing
@@ -18,15 +20,19 @@ import Api.Google.ListConstructor
         , field
         )
 import Api.Google.Model as Model
-import Basecoat exposing (classes)
+import Basecoat exposing (ariaInvalid, ariaLabel, classes, modalDialog)
 import Effect exposing (Effect)
-import Html exposing (Html, button, div, h2, label, p, section, text)
-import Html.Attributes exposing (class, disabled, type_)
-import Html.Events exposing (onClick)
+import Html exposing (Html, article, button, div, footer, form, h2, header, input, label, p, section, text)
+import Html.Attributes exposing (class, disabled, for, id, type_, value)
+import Html.Events exposing (onClick, onInput)
+import Icon.Cross exposing (crossIcon)
 import Icon.Info exposing (infoIcon)
+import Icon.Loading exposing (loadingIcon)
 import Icon.WarningCircle exposing (warningCircleIcon)
 import Json.Decode as Decode
+import Json.Encode as Encode
 import Port.Anki as Anki exposing (ModelRequiredKind(..))
+import Port.LocalStorage as LocalStorage
 import Session exposing (Session)
 import Task as PlatformTask
 import Time exposing (Month(..))
@@ -42,6 +48,8 @@ type alias Model =
     , currentBatches : List (List Model.MinedSentence)
     , reachedEnd : Bool
     , getState : GetState
+    , exportForm : ExportForm
+    , exportState : ExportState
     }
 
 
@@ -51,6 +59,27 @@ type GetState
     | GetFail Task.Error
 
 
+type alias ExportForm =
+    { isOpen : Bool
+    , batch : List Model.MinedSentence
+    , key : String
+    , region : String
+    , validation : ExportFormValidation
+    }
+
+
+type alias ExportFormValidation =
+    { key : Maybe String
+    , region : Maybe String
+    }
+
+
+type alias SpeechConfig =
+    { key : String
+    , region : String
+    }
+
+
 init : Session -> ( Model, Cmd Msg, Effect Msg )
 init session =
     ( { session = session
@@ -58,8 +87,25 @@ init session =
       , currentBatches = []
       , reachedEnd = False
       , getState = GetLoading
+      , exportForm =
+            { isOpen = False
+            , batch = []
+            , key = ""
+            , region = ""
+            , validation =
+                { key = Just ""
+                , region = Just ""
+                }
+            }
+      , exportState = ExportIdle
       }
-    , Cmd.none
+    , LocalStorage.get
+        (Decode.map2 SpeechConfig
+            (Decode.field "key" Decode.string)
+            (Decode.field "region" Decode.string)
+        )
+        speechConfigLocalStorageKey
+        |> PlatformTask.attempt SpeechConfigLocalStorageFetched
     , getBatchesEffect 0
     )
 
@@ -69,15 +115,47 @@ init session =
 
 
 type Msg
-    = GetFetched (Result Task.Error (List (List Model.MinedSentence)))
+    = SpeechConfigLocalStorageFetched (Result Decode.Error SpeechConfig)
+    | GetFetched (Result Task.Error (List (List Model.MinedSentence)))
     | LoadMoreClicked
     | BatchClicked (List Model.MinedSentence)
+    | ExportDialogClosed
+    | ExportFormUpdated ExportFormInput
+    | ExportConfirmClicked
     | NoOp
 
 
+type ExportFormInput
+    = ExportFormKey String
+    | ExportFormRegion String
+
+
+type ExportState
+    = ExportIdle
+    | ExportLoading
+    | ExportFinished ()
+
+
 update : Msg -> Model -> ( Model, Cmd Msg, Effect Msg )
-update msg model =
+update msg ({ exportForm } as model) =
     case msg of
+        SpeechConfigLocalStorageFetched (Ok config) ->
+            ( { model
+                | exportForm = setExportForm config.key config.region exportForm
+              }
+            , Cmd.none
+            , Effect.none
+            )
+
+        SpeechConfigLocalStorageFetched (Err _) ->
+            ( { model
+                | exportForm = setExportForm "" "" exportForm
+              }
+            , LocalStorage.remove speechConfigLocalStorageKey
+                |> PlatformTask.perform (\_ -> NoOp)
+            , Effect.none
+            )
+
         GetFetched (Ok batches) ->
             ( { model
                 | getState = GetSuccess
@@ -102,30 +180,95 @@ update msg model =
             )
 
         BatchClicked batch ->
-            ( model
-            , Anki.export
-                "export.apkg"
-                (Anki.addNotes
-                    (List.map
-                        (\sentence ->
-                            [ sentence.sentence
-                            , ""
-                            , sentence.word
-                            , ""
-                            , ""
-                            ]
-                        )
-                        batch
-                    )
-                    ankiModel
-                    ankiDeck
-                )
-                |> PlatformTask.attempt (\_ -> NoOp)
+            ( { model
+                | exportForm =
+                    { exportForm
+                        | isOpen = True
+                        , batch = batch
+                    }
+              }
+            , Cmd.none
+              -- , Anki.export
+              --     "export.apkg"
+              --     (Anki.addNotes
+              --         (List.map
+              --             (\sentence ->
+              --                 [ sentence.sentence
+              --                 , ""
+              --                 , sentence.word
+              --                 , ""
+              --                 , ""
+              --                 ]
+              --             )
+              --             batch
+              --         )
+              --         ankiModel
+              --         ankiDeck
+              --     )
+              --     |> PlatformTask.attempt (\_ -> NoOp)
             , Effect.none
             )
 
+        ExportDialogClosed ->
+            ( { model | exportForm = { exportForm | isOpen = False } }
+            , Cmd.none
+            , Effect.none
+            )
+
+        ExportFormUpdated input ->
+            let
+                newForm =
+                    case input of
+                        ExportFormKey key ->
+                            setExportForm key exportForm.region exportForm
+
+                        ExportFormRegion region ->
+                            setExportForm exportForm.key region exportForm
+            in
+            ( { model | exportForm = newForm }
+            , LocalStorage.set
+                (encodeForm newForm)
+                speechConfigLocalStorageKey
+                |> PlatformTask.perform (\_ -> NoOp)
+            , Effect.none
+            )
+
+        ExportConfirmClicked ->
+            ( model, Cmd.none, Effect.none )
+
         NoOp ->
             ( model, Cmd.none, Effect.none )
+
+
+encodeForm : ExportForm -> Encode.Value
+encodeForm { key, region } =
+    Encode.object
+        [ ( "key", Encode.string key )
+        , ( "region", Encode.string region )
+        ]
+
+
+setExportForm : String -> String -> ExportForm -> ExportForm
+setExportForm key region ({ validation } as form) =
+    { form
+        | key = key
+        , region = region
+        , validation =
+            { validation
+                | key = nonEmpty key "Key field cannot be empty"
+                , region = nonEmpty region "Region field cannot be empty"
+            }
+    }
+
+
+nonEmpty : String -> String -> Maybe String
+nonEmpty value errorString =
+    case value of
+        "" ->
+            Just errorString
+
+        _ ->
+            Nothing
 
 
 getBatchesRequest : Int -> Task.SheetsTask (List (List Model.MinedSentence))
@@ -353,6 +496,128 @@ batchesView model =
                         ]
                     ]
                 ]
+        , exportDialogView model
+        ]
+
+
+exportDialogView : Model -> Html Msg
+exportDialogView model =
+    modalDialog
+        model.exportForm.isOpen
+        ExportDialogClosed
+        [ classes
+            [ "dialog"
+            , "w-full"
+            , "sm:max-w-[425px]"
+            , "max-h-[612px]"
+            ]
+        ]
+        [ article []
+            [ header []
+                [ h2 [] [ text "Export batch" ] ]
+            , section []
+                [ form [ classes [ "form", "grid", "gap-4" ] ]
+                    [ div [ classes [ "grid", "gap-3" ] ] <|
+                        List.concat
+                            [ [ label [ for "export-speech-key" ]
+                                    [ text "Azure Speech Key" ]
+                              , input
+                                    [ type_ "text"
+                                    , id "export-speech-key"
+                                    , value model.exportForm.key
+                                    , onInput
+                                        (ExportFormUpdated << ExportFormKey)
+                                    , ariaInvalid
+                                        (model.exportForm.validation.key
+                                            /= Nothing
+                                        )
+                                    ]
+                                    []
+                              ]
+                            , case model.exportForm.validation.key of
+                                Just error ->
+                                    [ p
+                                        [ classes
+                                            [ "text-destructive"
+                                            , "text-sm"
+                                            ]
+                                        ]
+                                        [ text error ]
+                                    ]
+
+                                _ ->
+                                    []
+                            ]
+                    , div [ classes [ "grid", "gap-3" ] ] <|
+                        List.concat
+                            [ [ label [ for "export-speech-region" ]
+                                    [ text "Azure Speech Region" ]
+                              , input
+                                    [ type_ "text"
+                                    , id "export-speech-region"
+                                    , value model.exportForm.region
+                                    , onInput
+                                        (ExportFormUpdated << ExportFormRegion)
+                                    , ariaInvalid
+                                        (model.exportForm.validation.region
+                                            /= Nothing
+                                        )
+                                    ]
+                                    []
+                              ]
+                            , case model.exportForm.validation.region of
+                                Just error ->
+                                    [ p
+                                        [ classes
+                                            [ "text-destructive"
+                                            , "text-sm"
+                                            ]
+                                        ]
+                                        [ text error ]
+                                    ]
+
+                                _ ->
+                                    []
+                            ]
+                    ]
+                ]
+            , footer []
+                [ button
+                    [ class "btn-outline"
+                    , onClick ExportDialogClosed
+                    , disabled (model.exportState == ExportLoading)
+                    ]
+                    [ text "Cancel" ]
+                , button
+                    [ class "btn"
+                    , onClick ExportConfirmClicked
+                    , disabled
+                        (model.exportState
+                            == ExportLoading
+                            || model.exportForm.validation.key
+                            /= Nothing
+                            || model.exportForm.validation.region
+                            /= Nothing
+                        )
+                    ]
+                  <|
+                    List.concat
+                        [ case model.exportState of
+                            ExportLoading ->
+                                [ loadingIcon [] ]
+
+                            _ ->
+                                []
+                        , [ text "Export batch" ]
+                        ]
+                ]
+            , button
+                [ type_ "button"
+                , ariaLabel "Close dialog"
+                , onClick ExportDialogClosed
+                ]
+                [ crossIcon [] ]
+            ]
         ]
 
 
@@ -608,3 +873,8 @@ body>div {
 ankiDeck : Anki.Deck
 ankiDeck =
     Anki.deck 1755984963683 "Sentence Base"
+
+
+speechConfigLocalStorageKey : String
+speechConfigLocalStorageKey =
+    "speech_config"

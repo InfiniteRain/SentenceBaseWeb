@@ -87,7 +87,6 @@ import RegexExtra
 import Session exposing (Session)
 import Set exposing (Set)
 import Task as PlatformTask
-import TaskPort
 import Time
 import Toast
 
