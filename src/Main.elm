@@ -61,12 +61,11 @@ import Icon.WarningCircle exposing (warningCircleIcon)
 import Page.Auth as Auth exposing (Msg(..))
 import Page.Batches as Batches
 import Page.Mining as Mining exposing (Msg(..))
-import Port
+import Port.Timeout as Timeout
 import Random
 import Route exposing (Route(..), standardizeFragment)
 import Session exposing (Session)
 import Task
-import TaskPort
 import Time
 import Toast
 import Triple
@@ -400,7 +399,7 @@ type Msg
     | BlurredSideBarItem
     | ClickedSideBarItem String
     | GotViewPort String Viewport
-    | Timeout (TaskPort.Result Int)
+    | Timeout Int
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -477,7 +476,7 @@ update msg model =
             else
                 ( model, Cmd.none )
 
-        ( Timeout (Ok id), _ ) ->
+        ( Timeout id, _ ) ->
             ( { model
                 | toasts =
                     model.toasts
@@ -494,9 +493,6 @@ update msg model =
               }
             , Cmd.none
             )
-
-        ( Timeout (Err _), _ ) ->
-            ( model, Cmd.none )
 
 
 resolveOutMsgUpdates : Model -> Cmd Msg -> List Msg -> ( Model, Cmd Msg )
@@ -562,10 +558,10 @@ performEffect model effect =
                                ]
                   }
                 , Cmd.batch
-                    [ Port.timeout model.nextToastId time
-                        |> Task.attempt Timeout
-                    , Port.timeout model.nextToastId (time + 500)
-                        |> Task.attempt Timeout
+                    [ Timeout.set model.nextToastId time
+                        |> Task.perform Timeout
+                    , Timeout.set model.nextToastId (time + 500)
+                        |> Task.perform Timeout
                     ]
                 )
         }

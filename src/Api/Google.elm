@@ -14,7 +14,8 @@ import Api.Google.Exchange.SheetsCmd as DriveCmd exposing (SheetsCmd)
 import Api.Google.Exchange.Task as Task
 import Api.Google.Migration as Migration
 import Api.OutMsg as OutMsg exposing (OutMsg(..))
-import Port
+import Json.Decode as Decode
+import Json.Encode as Encode
 import Task as PlatformTask
 import TaskPort
 
@@ -76,7 +77,7 @@ update msg model =
     case ( model.state, msg ) of
         ( Uninitialized, SentAction (Initialize toMsg) ) ->
             ( { model | state = Authenticating, initializeMsg = Just toMsg }
-            , PlatformTask.attempt GotAuthenticationResult Port.googleGetToken
+            , PlatformTask.attempt GotAuthenticationResult googleGetToken
             , maybeSendInitializationUpdate model AuthenticatingApi
             )
 
@@ -336,3 +337,17 @@ type InitializeFailure
     | MainSheetLocation Task.Error
     | MainSheetCreation Task.Error
     | MainSheetMigration String Task.Error
+
+
+
+-- PORT
+
+
+googleGetToken : TaskPort.Task String
+googleGetToken =
+    TaskPort.call
+        { function = "googleGetToken"
+        , valueDecoder = Decode.string
+        , argsEncoder = \() -> Encode.bool False
+        }
+        ()

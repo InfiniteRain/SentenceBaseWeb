@@ -1,4 +1,4 @@
-module Anki exposing
+module Port.Anki exposing
     ( Deck
     , Model
     , ModelField
@@ -93,20 +93,6 @@ addNotes notes model (Deck targetDeck) =
         }
 
 
-export : String -> Deck -> TaskPort.Task ()
-export fileName =
-    TaskPort.call
-        { function = "ankiExport"
-        , valueDecoder = Decode.succeed ()
-        , argsEncoder =
-            \targetDeck ->
-                Encode.object
-                    [ ( "deck", deckEncoder targetDeck )
-                    , ( "fileName", Encode.string fileName )
-                    ]
-        }
-
-
 
 -- HELPERS
 
@@ -181,3 +167,21 @@ modelRequiredKindEncoder kind =
 
         Any ->
             Encode.string "any"
+
+
+
+-- PORT CALLS
+
+
+export : String -> Deck -> TaskPort.Task ()
+export fileName =
+    TaskPort.call
+        { function = "ankiExport"
+        , valueDecoder = Decode.succeed ()
+        , argsEncoder =
+            \targetDeck ->
+                Encode.object
+                    [ ( "deck", deckEncoder targetDeck )
+                    , ( "fileName", Encode.string fileName )
+                    ]
+        }

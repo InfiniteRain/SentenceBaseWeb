@@ -18,8 +18,7 @@ module Api.Google.Exchange.Task exposing
 import Api.Google.Exchange.SheetsCmd as SheetCmd exposing (SheetsCmd)
 import Http exposing (Error(..))
 import Json.Decode as Decode exposing (Decoder)
-import Json.Encode exposing (encode)
-import Port
+import Json.Encode as Encode exposing (encode)
 import Task
 import TaskPort exposing (Error(..))
 
@@ -186,14 +185,14 @@ unwrap : param -> Task param a -> Task.Task Error a
 unwrap param task =
     case task of
         ExchangeTask taskConstr ->
-            Port.googleGetToken
+            googleGetToken
                 |> Task.mapError TokenAcquisitionError
                 |> Task.andThen (\token -> taskConstr token param)
                 |> Task.onError
                     (\err ->
                         case err of
                             HttpError (BadStatus 401) ->
-                                Port.googleGetTokenRefresh
+                                googleGetTokenRefresh
                                     |> Task.mapError TokenAcquisitionError
                                     |> Task.andThen
                                         (\token -> taskConstr token param)
@@ -273,3 +272,26 @@ errorToMessage error =
 
         PlatformTaskError ->
             "Platform task error."
+
+
+
+-- PORT
+
+
+googleGetToken : TaskPort.Task String
+googleGetToken =
+    googleGetTokenInner False
+
+
+googleGetTokenRefresh : TaskPort.Task String
+googleGetTokenRefresh =
+    googleGetTokenInner True
+
+
+googleGetTokenInner : Bool -> TaskPort.Task String
+googleGetTokenInner =
+    TaskPort.call
+        { function = "googleGetToken"
+        , valueDecoder = Decode.string
+        , argsEncoder = Encode.bool
+        }

@@ -1,6 +1,5 @@
 module Page.Batches exposing (Model, Msg(..), init, subscriptions, update, view)
 
-import Anki exposing (ModelRequiredKind(..))
 import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Exchange.Sheets as Sheets
     exposing
@@ -27,7 +26,7 @@ import Html.Events exposing (onClick)
 import Icon.Info exposing (infoIcon)
 import Icon.WarningCircle exposing (warningCircleIcon)
 import Json.Decode as Decode
-import List exposing (all)
+import Port.Anki as Anki exposing (ModelRequiredKind(..))
 import Session exposing (Session)
 import Task as PlatformTask
 import Time exposing (Month(..))

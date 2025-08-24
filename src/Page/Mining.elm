@@ -79,7 +79,9 @@ import Icon.Trash exposing (trashIcon)
 import Icon.WarningCircle exposing (warningCircleIcon)
 import Json.Decode as Decode
 import Json.Encode as Encode
-import Port
+import Platform exposing (Task)
+import Port.Clipboard as Clipboard
+import Port.LocalStorage as LocalStorage
 import Regex
 import RegexExtra
 import Session exposing (Session)
@@ -241,9 +243,9 @@ init session =
             , confirmState = ConfirmIdle
             }
       }
-    , Port.localStorageGet
-        tagsLocalStorageKey
+    , LocalStorage.get
         (Decode.list Decode.string)
+        tagsLocalStorageKey
         |> PlatformTask.attempt TagsLocalStorageFetched
     , Effect.none
     )
@@ -254,10 +256,10 @@ init session =
 
 
 type Msg
-    = TagsLocalStorageFetched (TaskPort.Result (List String))
+    = TagsLocalStorageFetched (Result Decode.Error (List String))
     | TabClicked Tab
     | BodyClicked
-    | ClipboardUpdated (TaskPort.Result String)
+    | ClipboardUpdated String
     | WordSelected String
     | DefinitionFetched (Result Http.Error Wiktionary.Usages)
     | MineClicked
@@ -308,9 +310,9 @@ update msg ({ mining, overview } as model) =
 
         TagsLocalStorageFetched (Err _) ->
             ( model
-            , Port.localStorageRemove
+            , LocalStorage.remove
                 tagsLocalStorageKey
-                |> PlatformTask.attempt (\_ -> NoOp)
+                |> PlatformTask.perform (\_ -> NoOp)
             , Effect.none
             )
 
@@ -337,7 +339,7 @@ update msg ({ mining, overview } as model) =
                     , Effect.none
                     )
 
-        ClipboardUpdated (Ok str) ->
+        ClipboardUpdated str ->
             let
                 trimmed =
                     String.trim str
@@ -358,9 +360,6 @@ update msg ({ mining, overview } as model) =
                 , Cmd.none
                 , Effect.none
                 )
-
-        ClipboardUpdated (Err _) ->
-            ( model, Cmd.none, Effect.none )
 
         WordSelected str ->
             ( { model
@@ -402,7 +401,7 @@ update msg ({ mining, overview } as model) =
 
         BodyClicked ->
             ( model
-            , PlatformTask.attempt ClipboardUpdated Port.readClipboard
+            , PlatformTask.perform ClipboardUpdated Clipboard.read
             , Effect.none
             )
 
@@ -502,9 +501,9 @@ update msg ({ mining, overview } as model) =
                         , tags = form.tags
                     }
               }
-            , Port.localStorageSet
-                tagsLocalStorageKey
+            , LocalStorage.set
                 (Encode.list Encode.string form.tags)
+                tagsLocalStorageKey
                 |> PlatformTask.attempt (\_ -> NoOp)
             , Effect.none
             )
