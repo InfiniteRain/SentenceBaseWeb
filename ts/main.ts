@@ -5,6 +5,7 @@ import "./ports/google";
 import "./ports/clipboard";
 import "./ports/timeout";
 import "./ports/local-storage";
+import "./ports/azure-speech";
 import "./ports/anki-export";
 
 TaskPort.install({

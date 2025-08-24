@@ -19,6 +19,7 @@ type AnkiExportArg = {
     notes: {
       [_: number]: string[][];
     };
+    files: [string, string][];
   };
   fileName: string;
 };
@@ -55,6 +56,13 @@ TaskPort.register("ankiExport", async (config: AnkiExportArg) => {
   }
 
   const ankiPackage = new Package();
+
+  for (const [fileName, data] of config.deck.files) {
+    const result = await fetch(data);
+    const blob = await result.blob();
+
+    ankiPackage.addMedia(blob, fileName);
+  }
 
   ankiPackage.addDeck(deck);
   ankiPackage.writeToFile(config.fileName);

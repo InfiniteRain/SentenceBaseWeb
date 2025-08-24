@@ -7,11 +7,13 @@ module Effect exposing
     , none
     , toast
     , uuid
+    , uuids
     , wiktionary
     )
 
 import Api.Google as Google exposing (Action(..))
 import Api.Google.Exchange.SheetsCmd as SheetsCmd exposing (SheetsCmd)
+import Api.Uuid as Uuid exposing (Action(..))
 import Api.Wiktionary as Wiktionary
 import Http
 import Toast
@@ -25,7 +27,7 @@ type Effect msg
     = None
     | Google (Google.Action msg)
     | Wiktionary (Wiktionary.RequestConfig msg)
-    | Uuid (String -> msg)
+    | Uuid (Uuid.Action msg)
     | Toast Toast.Config
 
 
@@ -58,7 +60,12 @@ wiktionary toMsg word =
 
 uuid : (String -> msg) -> Effect msg
 uuid toMsg =
-    Uuid toMsg
+    Uuid <| Single toMsg
+
+
+uuids : Int -> (List String -> msg) -> Effect msg
+uuids num toMsg =
+    Uuid <| Multiple num toMsg
 
 
 toast : Toast.Config -> Effect msg
@@ -76,7 +83,7 @@ match :
         { onNone : a
         , onGoogle : Google.Action msg -> a
         , onWiktionary : Wiktionary.RequestConfig msg -> a
-        , onUuid : (String -> msg) -> a
+        , onUuid : Uuid.Action msg -> a
         , onToast : Toast.Config -> a
         }
     -> a
@@ -120,8 +127,11 @@ map toMsg msg =
                 , toMsg = request.toMsg >> toMsg
                 }
 
-        Uuid uuidToMsg ->
-            Uuid (uuidToMsg >> toMsg)
+        Uuid (Single uuidToMsg) ->
+            Uuid <| Single (uuidToMsg >> toMsg)
+
+        Uuid (Multiple num uuidToMsg) ->
+            Uuid <| Multiple num (uuidToMsg >> toMsg)
 
         Toast config ->
             Toast config

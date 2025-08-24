@@ -110,8 +110,8 @@ parsedExampleResponseToExample parsedExample =
     }
 
 
-init : () -> ( Model rootMsg, Cmd (Msg rootMsg) )
-init _ =
+init : ( Model rootMsg, Cmd (Msg rootMsg) )
+init =
     ( { state = Ready
       , requestQueue = []
       , responseCache = Dict.empty

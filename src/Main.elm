@@ -125,7 +125,7 @@ initApi initialSeeds =
             Google.init ()
 
         ( wiktionaryModel, wiktionaryCmd ) =
-            Wiktionary.init ()
+            Wiktionary.init
 
         ( uuidModel, uuidCmd ) =
             Uuid.init <|

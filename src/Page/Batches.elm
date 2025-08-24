@@ -1,7 +1,5 @@
 module Page.Batches exposing (Model, Msg(..), init, subscriptions, update, view)
 
--- MODEL
-
 import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Exchange.Sheets as Sheets
     exposing
@@ -31,10 +29,11 @@ import Icon.Loading exposing (loadingIcon)
 import Icon.WarningCircle exposing (warningCircleIcon)
 import Json.Decode as Decode
 import Json.Encode as Encode
-import Port.Anki as Anki exposing (ModelRequiredKind(..))
+import Port.Anki as Anki
 import Port.LocalStorage as LocalStorage
 import Session exposing (Session)
 import Task as PlatformTask
+import TaskPort
 import Time exposing (Month(..))
 
 
@@ -122,6 +121,7 @@ type Msg
     | ExportDialogClosed
     | ExportFormUpdated ExportFormInput
     | ExportConfirmClicked
+    | UuidsReceived (List String)
     | NoOp
 
 
@@ -188,24 +188,6 @@ update msg ({ exportForm } as model) =
                     }
               }
             , Cmd.none
-              -- , Anki.export
-              --     "export.apkg"
-              --     (Anki.addNotes
-              --         (List.map
-              --             (\sentence ->
-              --                 [ sentence.sentence
-              --                 , ""
-              --                 , sentence.word
-              --                 , ""
-              --                 , ""
-              --                 ]
-              --             )
-              --             batch
-              --         )
-              --         ankiModel
-              --         ankiDeck
-              --     )
-              --     |> PlatformTask.attempt (\_ -> NoOp)
             , Effect.none
             )
 
@@ -234,7 +216,65 @@ update msg ({ exportForm } as model) =
             )
 
         ExportConfirmClicked ->
-            ( model, Cmd.none, Effect.none )
+            ( model
+            , Cmd.none
+            , Effect.uuids
+                (List.length model.exportForm.batch)
+                UuidsReceived
+            )
+
+        UuidsReceived uuids ->
+            ( model
+            , PlatformTask.sequence
+                (List.map
+                    (\{ sentence } ->
+                        generateAudio
+                            { key = model.exportForm.key
+                            , region = model.exportForm.region
+                            , sentence = sentence
+                            }
+                    )
+                    model.exportForm.batch
+                )
+                |> PlatformTask.map
+                    (List.map3
+                        (\fileName sentenceDatum fileData ->
+                            ( fileName ++ ".mp3"
+                            , sentenceDatum
+                            , fileData
+                            )
+                        )
+                        uuids
+                        model.exportForm.batch
+                    )
+                |> PlatformTask.andThen
+                    (\sentenceData ->
+                        ankiDeck
+                            |> Anki.addFiles
+                                (List.map
+                                    (\( fileName, _, fileData ) ->
+                                        ( fileName, fileData )
+                                    )
+                                    sentenceData
+                                )
+                            |> Anki.addNotes
+                                (List.map
+                                    (\( fileName, { word, sentence }, _ ) ->
+                                        [ sentence
+                                        , ""
+                                        , word
+                                        , ""
+                                        , "[sound:" ++ fileName ++ "]"
+                                        ]
+                                    )
+                                    sentenceData
+                                )
+                                ankiModel
+                            |> Anki.export "export.apkg"
+                    )
+                |> PlatformTask.attempt (\_ -> NoOp)
+            , Effect.none
+            )
 
         NoOp ->
             ( model, Cmd.none, Effect.none )
@@ -755,6 +795,30 @@ monthToString month =
 
         Dec ->
             "Dec"
+
+
+
+-- PORT CALLS
+
+
+generateAudio :
+    { key : String
+    , region : String
+    , sentence : String
+    }
+    -> TaskPort.Task String
+generateAudio =
+    TaskPort.call
+        { function = "generateAudio"
+        , valueDecoder = Decode.string
+        , argsEncoder =
+            \{ key, region, sentence } ->
+                Encode.object
+                    [ ( "key", Encode.string key )
+                    , ( "region", Encode.string region )
+                    , ( "sentence", Encode.string sentence )
+                    ]
+        }
 
 
 

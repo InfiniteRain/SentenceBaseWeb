@@ -4,6 +4,7 @@ module Port.Anki exposing
     , ModelField
     , ModelRequiredKind(..)
     , ModelTemplate
+    , addFiles
     , addNotes
     , deck
     , export
@@ -50,6 +51,7 @@ type Deck
         , name : String
         , models : Dict Int Model
         , notes : Dict Int (List (List String))
+        , files : List ( String, String )
         }
 
 
@@ -64,6 +66,7 @@ deck id name =
         , name = name
         , models = Dict.empty
         , notes = Dict.empty
+        , files = []
         }
 
 
@@ -93,12 +96,17 @@ addNotes notes model (Deck targetDeck) =
         }
 
 
+addFiles : List ( String, String ) -> Deck -> Deck
+addFiles files (Deck targetDeck) =
+    Deck { targetDeck | files = targetDeck.files ++ files }
+
+
 
 -- HELPERS
 
 
 deckEncoder : Deck -> Encode.Value
-deckEncoder (Deck { id, name, models, notes }) =
+deckEncoder (Deck { id, name, models, notes, files }) =
     Encode.object
         [ ( "id", Encode.int id )
         , ( "name", Encode.string name )
@@ -121,6 +129,16 @@ deckEncoder (Deck { id, name, models, notes }) =
                         )
                     )
                     (Dict.toList notes)
+          )
+        , ( "files"
+          , Encode.list
+                (\( fileName, data ) ->
+                    Encode.list identity
+                        [ Encode.string fileName
+                        , Encode.string data
+                        ]
+                )
+                files
           )
         ]
 
@@ -157,16 +175,6 @@ modelTemplateEncoder { name, frontHtml, backHtml } =
         , ( "frontHtml", Encode.string frontHtml )
         , ( "backHtml", Encode.string backHtml )
         ]
-
-
-modelRequiredKindEncoder : ModelRequiredKind -> Encode.Value
-modelRequiredKindEncoder kind =
-    case kind of
-        All ->
-            Encode.string "all"
-
-        Any ->
-            Encode.string "any"
 
 
 
