@@ -2,7 +2,7 @@ module Port.Anki exposing
     ( Deck
     , Model
     , ModelField
-    , ModelRequiredKind(..)
+    , ModelRequiredFields(..)
     , ModelTemplate
     , addFiles
     , addNotes
@@ -26,6 +26,7 @@ type alias Model =
     , fields : List ModelField
     , templates : List ModelTemplate
     , styling : String
+    , requiredFields : List ModelRequiredFields
     }
 
 
@@ -40,9 +41,9 @@ type alias ModelTemplate =
     }
 
 
-type ModelRequiredKind
-    = All
-    | Any
+type ModelRequiredFields
+    = All Int (List Int)
+    | Any Int (List Int)
 
 
 type Deck
@@ -144,13 +145,35 @@ deckEncoder (Deck { id, name, models, notes, files }) =
 
 
 modelEncoder : Model -> Encode.Value
-modelEncoder { id, name, fields, templates, styling } =
+modelEncoder { id, name, fields, templates, styling, requiredFields } =
     Encode.object
         [ ( "id", Encode.int id )
         , ( "name", Encode.string name )
         , ( "fields", Encode.list modelFieldEncoder fields )
         , ( "templates", Encode.list modelTemplateEncoder templates )
         , ( "styling", Encode.string styling )
+        , ( "requiredFields"
+          , Encode.list
+                (\field ->
+                    case field of
+                        All templateIndex fieldList ->
+                            Encode.list
+                                identity
+                                [ Encode.int templateIndex
+                                , Encode.string "all"
+                                , Encode.list Encode.int fieldList
+                                ]
+
+                        Any templateIndex fieldList ->
+                            Encode.list
+                                identity
+                                [ Encode.int templateIndex
+                                , Encode.string "any"
+                                , Encode.list Encode.int fieldList
+                                ]
+                )
+                requiredFields
+          )
         ]
 
 

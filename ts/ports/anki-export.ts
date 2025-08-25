@@ -7,6 +7,7 @@ type AnkiModel = {
   fields: { name: string }[];
   templates: { name: string | null; frontHtml: string; backHtml: string }[];
   styling: string;
+  requiredFields: [number, "all" | "any", number[]][];
 };
 
 type AnkiExportArg = {
@@ -27,16 +28,17 @@ type AnkiExportArg = {
 TaskPort.register("ankiExport", async (config: AnkiExportArg) => {
   const models = new Map<string, Model>();
 
-  for (const [key, { name, fields, templates, styling }] of Object.entries(
-    config.deck.models,
-  )) {
+  for (const [
+    key,
+    { name, fields, templates, styling, requiredFields },
+  ] of Object.entries(config.deck.models)) {
     models.set(
       key,
       new Model({
         name,
         id: key,
         flds: fields,
-        req: [],
+        req: requiredFields,
         tmpls: templates.map((template) => ({
           ...(template.name !== null ? { name: template.name } : {}),
           qfmt: template.frontHtml,

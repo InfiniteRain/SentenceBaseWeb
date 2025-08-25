@@ -13,6 +13,7 @@ module Api.Google.Exchange.Task exposing
     , sheetsAttempt
     , sheetsHttp
     , succeed
+    , taskPortErrorToMessage
     )
 
 import Api.Google.Exchange.SheetsCmd as SheetCmd exposing (SheetsCmd)
@@ -239,6 +240,19 @@ jsonResolver decoder =
     Http.stringResolver <| handleJsonResponse <| decoder
 
 
+taskPortErrorToMessage : TaskPort.Error -> String
+taskPortErrorToMessage error =
+    case error of
+        InteropError _ ->
+            "Interop error."
+
+        JSError (TaskPort.ErrorObject _ { message }) ->
+            "Error thrown: " ++ message
+
+        JSError (TaskPort.ErrorValue value) ->
+            "Error thrown: " ++ encode 4 value
+
+
 errorToMessage : Error -> String
 errorToMessage error =
     case error of
@@ -260,15 +274,7 @@ errorToMessage error =
                     "Received invalid body: " ++ info
 
         TokenAcquisitionError taError ->
-            case taError of
-                InteropError _ ->
-                    "Interop error."
-
-                JSError (TaskPort.ErrorObject name _) ->
-                    "Error thrown: " ++ name
-
-                JSError (TaskPort.ErrorValue value) ->
-                    "Error thrown: " ++ encode 4 value
+            taskPortErrorToMessage taError
 
         PlatformTaskError ->
             "Platform task error."

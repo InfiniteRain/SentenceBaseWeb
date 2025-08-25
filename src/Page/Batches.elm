@@ -8,7 +8,7 @@ import Api.Google.Exchange.Sheets as Sheets
         , RequestExtendedValue(..)
         , requestRow
         )
-import Api.Google.Exchange.Task as Task
+import Api.Google.Exchange.Task as Task exposing (taskPortErrorToMessage)
 import Api.Google.ListConstructor
     exposing
         ( cellNumberValue
@@ -18,23 +18,44 @@ import Api.Google.ListConstructor
         , field
         )
 import Api.Google.Model as Model
+import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
 import Basecoat exposing (ariaInvalid, ariaLabel, classes, modalDialog)
 import Effect exposing (Effect)
-import Html exposing (Html, article, button, div, footer, form, h2, header, input, label, p, section, text)
+import Html
+    exposing
+        ( Html
+        , article
+        , button
+        , div
+        , footer
+        , form
+        , h2
+        , header
+        , input
+        , label
+        , p
+        , section
+        , text
+        )
 import Html.Attributes exposing (class, disabled, for, id, type_, value)
 import Html.Events exposing (onClick, onInput)
+import Http
 import Icon.Cross exposing (crossIcon)
 import Icon.Info exposing (infoIcon)
 import Icon.Loading exposing (loadingIcon)
 import Icon.WarningCircle exposing (warningCircleIcon)
 import Json.Decode as Decode
-import Json.Encode as Encode
-import Port.Anki as Anki
+import Json.Encode as Encode exposing (encode)
+import Port.Anki as Anki exposing (ModelRequiredFields(..))
 import Port.LocalStorage as LocalStorage
+import Regex
+import RegexExtra
 import Session exposing (Session)
 import Task as PlatformTask
-import TaskPort
+import TaskPort exposing (Error(..))
 import Time exposing (Month(..))
+import Toast
+import VitePluginHelper
 
 
 
@@ -71,6 +92,12 @@ type alias ExportFormValidation =
     { key : Maybe String
     , region : Maybe String
     }
+
+
+type ExportState
+    = ExportIdle
+    | ExportLoading
+    | ExportFinished (TaskPort.Result ())
 
 
 type alias SpeechConfig =
@@ -122,18 +149,18 @@ type Msg
     | ExportFormUpdated ExportFormInput
     | ExportConfirmClicked
     | UuidsReceived (List String)
+    | DefinitionsFetched
+        (List String)
+        (List
+            (Result Http.Error Wiktionary.Usages)
+        )
+    | ExportFetched (TaskPort.Result ())
     | NoOp
 
 
 type ExportFormInput
     = ExportFormKey String
     | ExportFormRegion String
-
-
-type ExportState
-    = ExportIdle
-    | ExportLoading
-    | ExportFinished ()
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, Effect Msg )
@@ -186,13 +213,21 @@ update msg ({ exportForm } as model) =
                         | isOpen = True
                         , batch = batch
                     }
+                , exportState = ExportIdle
               }
             , Cmd.none
             , Effect.none
             )
 
         ExportDialogClosed ->
-            ( { model | exportForm = { exportForm | isOpen = False } }
+            ( { model
+                | exportForm =
+                    if model.exportState == ExportLoading then
+                        exportForm
+
+                    else
+                        { exportForm | isOpen = False }
+              }
             , Cmd.none
             , Effect.none
             )
@@ -216,7 +251,7 @@ update msg ({ exportForm } as model) =
             )
 
         ExportConfirmClicked ->
-            ( model
+            ( { model | exportState = ExportLoading }
             , Cmd.none
             , Effect.uuids
                 (List.length model.exportForm.batch)
@@ -224,6 +259,14 @@ update msg ({ exportForm } as model) =
             )
 
         UuidsReceived uuids ->
+            ( model
+            , Cmd.none
+            , Effect.wiktionary
+                (DefinitionsFetched uuids)
+                (List.map .word model.exportForm.batch)
+            )
+
+        DefinitionsFetched uuids definitions ->
             ( model
             , PlatformTask.sequence
                 (List.map
@@ -237,33 +280,35 @@ update msg ({ exportForm } as model) =
                     model.exportForm.batch
                 )
                 |> PlatformTask.map
-                    (List.map3
-                        (\fileName sentenceDatum fileData ->
-                            ( fileName ++ ".mp3"
-                            , sentenceDatum
-                            , fileData
-                            )
+                    (List.map4
+                        (\fileName sentenceDatum definition fileData ->
+                            { fileName = fileName ++ ".mp3"
+                            , sentence = sentenceDatum
+                            , definition = definition
+                            , fileData = fileData
+                            }
                         )
                         uuids
                         model.exportForm.batch
+                        definitions
                     )
                 |> PlatformTask.andThen
                     (\sentenceData ->
                         ankiDeck
                             |> Anki.addFiles
                                 (List.map
-                                    (\( fileName, _, fileData ) ->
+                                    (\{ fileName, fileData } ->
                                         ( fileName, fileData )
                                     )
                                     sentenceData
                                 )
                             |> Anki.addNotes
                                 (List.map
-                                    (\( fileName, { word, sentence }, _ ) ->
-                                        [ sentence
+                                    (\{ fileName, sentence, definition } ->
+                                        [ sentence.sentence
                                         , ""
-                                        , word
-                                        , ""
+                                        , sentence.word
+                                        , usagesHtml definition
                                         , "[sound:" ++ fileName ++ "]"
                                         ]
                                     )
@@ -272,8 +317,32 @@ update msg ({ exportForm } as model) =
                                 ankiModel
                             |> Anki.export "export.apkg"
                     )
-                |> PlatformTask.attempt (\_ -> NoOp)
+                |> PlatformTask.attempt ExportFetched
             , Effect.none
+            )
+
+        ExportFetched result ->
+            ( { model
+                | exportState = ExportFinished result
+                , exportForm =
+                    case result of
+                        Err _ ->
+                            exportForm
+
+                        _ ->
+                            { exportForm | isOpen = False }
+              }
+            , Cmd.none
+            , case result of
+                Err err ->
+                    Effect.toast
+                        { category = Toast.Error
+                        , title = "Failed to export batch"
+                        , description = taskPortErrorToMessage err
+                        }
+
+                _ ->
+                    Effect.none
             )
 
         NoOp ->
@@ -822,6 +891,84 @@ generateAudio =
 
 
 
+-- CARD HTML
+
+
+usagesHtml : Result Http.Error Wiktionary.Usages -> String
+usagesHtml result =
+    case result of
+        Ok (Usages usages) ->
+            usages
+                |> List.indexedMap definitionsHtml
+                |> String.join ""
+
+        Err _ ->
+            ""
+
+
+definitionsHtml : Int -> Wiktionary.Definitions -> String
+definitionsHtml index (Definitions definitions) =
+    "<div class=\"etymology\">Etymology "
+        ++ String.fromInt (index + 1)
+        ++ "</div><ul>"
+        ++ (List.map definitionHtml definitions
+                |> String.join ""
+           )
+        ++ "</ul>"
+
+
+definitionHtml : Wiktionary.Definition -> String
+definitionHtml definition =
+    "<li>"
+        ++ (Regex.split RegexExtra.newLines definition.text
+                |> List.map (\line -> "<div>" ++ String.trim line ++ "</div>")
+                |> String.join ""
+           )
+        ++ (List.map formUsagesHtml definition.formUsages
+                |> String.join ""
+           )
+        ++ "</li>"
+
+
+formUsagesHtml : Wiktionary.FormUsages -> String
+formUsagesHtml { word, usages } =
+    let
+        (Usages unwrapped) =
+            usages
+    in
+    unwrapped
+        |> List.indexedMap
+            (\index (Definitions definitions) ->
+                "<div><div class=\"etymology\">Etymology "
+                    ++ String.fromInt (index + 1)
+                    ++ " for "
+                    ++ word
+                    ++ "</div><ul>"
+                    ++ (List.map
+                            (\definition ->
+                                "<li>"
+                                    ++ (Regex.split
+                                            RegexExtra.newLines
+                                            definition.text
+                                            |> List.map
+                                                (\line ->
+                                                    "<div>"
+                                                        ++ String.trim line
+                                                        ++ "</div>"
+                                                )
+                                            |> String.join ""
+                                       )
+                                    ++ "</li>"
+                            )
+                            definitions
+                            |> String.join ""
+                       )
+                    ++ "</ul></div>"
+            )
+        |> String.join ""
+
+
+
 -- CONSTANTS
 
 
@@ -843,100 +990,18 @@ ankiModel =
         ]
     , templates =
         [ { name = Nothing
-          , frontHtml = String.trim """
-<div class="body front-notice">Audio Only</div>
-
-<div class="footer">{{Sentence Audio}}</div>
-"""
-          , backHtml = String.trim """
-<div class="body">
-  <div class="sentence">
-    <div class="bigger">{{Sentence}}</div>
-    <div class="bigger">{{Sentence Translation}}</div>
-  </div>
-  <hr />
-  <div class="bigger">{{Word}}</div>
-  <div class="definition">{{Word Definition}}</div>
-</div>
-
-<div class="footer">{{Sentence Audio}}</div>
-"""
+          , frontHtml = VitePluginHelper.asset "/assets/anki-front.html?raw"
+          , backHtml = VitePluginHelper.asset "/assets/anki-back.html?raw"
           }
         ]
-    , styling = String.trim """
-html,
-body,
-body>div {
-  padding: 0;
-  margin: 0;
-  height: 100%;
-}
-
-.body {
-  overflow: auto;
-  text-align: center;
-  height: calc(100% - 64px);
-}
-
-.footer {
-  position: absolute;
-  bottom: 0;
-  height: 48px;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.front-notice {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-style: italic;
-  color: #7e7f7a;
-}
-
-.bigger {
-  font-size: 32px;
-}
-
-.sentence div {
-  margin: 16px;
-}
-
-.definition {
-  text-align: start;
-  padding: 16px 48px 0 64px;
-}
-
-.definition ul {
-  list-style: square;
-  margin: 8px 0 0 0;
-}
-
-.definition ul:last-child {
-  margin-bottom: 8px;
-}
-
-.definition li {
-  margin-bottom: 4px;
-}
-
-.definition .etimology {
-  font-size: 18px;
-  margin-top: 8px;
-}
-
-.definition {
-  font-size: 16px;
-}
-"""
+    , styling = VitePluginHelper.asset "/assets/anki-styling.css?raw"
+    , requiredFields = [ All 0 [ 0 ] ]
     }
 
 
 ankiDeck : Anki.Deck
 ankiDeck =
-    Anki.deck 1755984963683 "Sentence Base"
+    Anki.deck 1755984963673 "Sentence Base"
 
 
 speechConfigLocalStorageKey : String
