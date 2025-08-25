@@ -85,7 +85,7 @@ type ApiMsg
 
 type alias ApiModel =
     { google : Google.Model Msg
-    , wiktionary : Wiktionary.Model Msg
+    , wiktionary : Wiktionary.Model
     , uuid : Uuid.Model
     }
 

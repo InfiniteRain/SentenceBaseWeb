@@ -260,7 +260,7 @@ type Msg
     | BodyClicked
     | ClipboardUpdated String
     | WordSelected String
-    | DefinitionFetched (Result Http.Error Wiktionary.Usages)
+    | DefinitionFetched (List (Result Http.Error Wiktionary.Usages))
     | MineClicked
     | AddFetched (Result Task.Error ())
     | TagsClicked
@@ -369,12 +369,12 @@ update msg ({ mining, overview } as model) =
                     }
               }
             , Cmd.none
-            , Effect.wiktionary DefinitionFetched str
+            , Effect.wiktionary DefinitionFetched [ str ]
             )
 
         DefinitionFetched result ->
             case ( result, mining.selected ) of
-                ( Ok definition, Just _ ) ->
+                ( (Ok definition) :: _, Just _ ) ->
                     ( { model
                         | mining =
                             { mining
@@ -386,7 +386,7 @@ update msg ({ mining, overview } as model) =
                     , Effect.none
                     )
 
-                ( Err _, Just _ ) ->
+                ( (Err _) :: _, Just _ ) ->
                     ( { model
                         | mining =
                             { mining | definitionState = DefinitionNotFound }

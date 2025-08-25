@@ -20,7 +20,6 @@ import Json.Decode as Decode exposing (Decoder)
 import Regex
 import RegexExtra
 import Set exposing (Set)
-import Triple
 import Url.Builder exposing (crossOrigin)
 
 
@@ -28,39 +27,49 @@ import Url.Builder exposing (crossOrigin)
 -- MODEL
 
 
-type alias Model rootMsg =
-    { state : State
-    , requestQueue : List (RequestConfig rootMsg)
-    , responseCache : Dict String Response
+type alias Model =
+    { responseCache : Dict String Response
     }
 
 
-type State
-    = Ready
-    | ResolvingForm Usages (List String)
+init : ( Model, Cmd (Msg rootMsg) )
+init =
+    ( { responseCache = Dict.empty
+      }
+    , Cmd.none
+    )
+
+
+
+-- UPDATE
+
+
+type Msg rootMsg
+    = SentRequest (RequestConfig rootMsg)
+    | ReceivedResponse String (RequestCtx rootMsg) (Result Http.Error Response)
+
+
+type alias RequestCtx rootMsg =
+    { state : RequestState
+    , config : RequestConfig rootMsg
+    , results : List (Result Http.Error Usages)
+    }
+
+
+type RequestState
+    = RequestBaseWord
+    | RequestFormWords
+        { usages : Usages
+        , formWords : List String
+        }
 
 
 type Usages
     = Usages (List Definitions)
 
 
-responseToUsages : String -> Bool -> Response -> Usages
-responseToUsages currentWord doFormLookup response =
-    response.nl
-        |> Maybe.map (List.map (usageResponseToDefinitions currentWord doFormLookup))
-        |> Maybe.withDefault []
-        |> Usages
-
-
 type Definitions
     = Definitions (List Definition)
-
-
-usageResponseToDefinitions : String -> Bool -> UsageResponse -> Definitions
-usageResponseToDefinitions currentWord doFormLookup usage =
-    List.map (definitionResponseToDefinition currentWord doFormLookup) usage.definitions
-        |> List.filter (\definition -> definition.text /= "")
-        |> Definitions
 
 
 type alias Definition =
@@ -76,240 +85,169 @@ type alias FormUsages =
     }
 
 
-definitionResponseToDefinition : String -> Bool -> DefinitionResponse -> Definition
-definitionResponseToDefinition currentWord doFormLookup definition =
-    { text = htmlToText definition.definition
-    , examples =
-        Maybe.withDefault [] definition.parsedExamples
-            |> List.map parsedExampleResponseToExample
-    , formUsages =
-        if doFormLookup then
-            collectBaseFormFordsFromHtml currentWord definition.definition
-                |> List.map
-                    (\word ->
-                        { word = word
-                        , usages = Usages []
-                        }
-                    )
-
-        else
-            []
-    }
-
-
 type alias Example =
     { example : String
     , translation : Maybe String
     }
 
 
-parsedExampleResponseToExample : ParsedExampleResponse -> Example
-parsedExampleResponseToExample parsedExample =
-    { example = htmlToText parsedExample.example
-    , translation = Maybe.map htmlToText parsedExample.translation
-    }
-
-
-init : ( Model rootMsg, Cmd (Msg rootMsg) )
-init =
-    ( { state = Ready
-      , requestQueue = []
-      , responseCache = Dict.empty
-      }
-    , Cmd.none
-    )
-
-
-
--- UPDATE
-
-
-type Msg rootMsg
-    = SentRequest (RequestConfig rootMsg)
-    | ReceivedResponse (Result Http.Error Response)
-
-
-update : Msg rootMsg -> Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
+update : Msg rootMsg -> Model -> ( Model, Cmd (Msg rootMsg), OutMsg rootMsg )
 update msg model =
-    case ( model.state, msg, model.requestQueue ) of
-        ( Ready, SentRequest request, [] ) ->
-            getFromCacheOrUpdate
-                request.word
-                ( { model | requestQueue = model.requestQueue ++ [ request ] }
-                , sendRequest request
-                , OutMsg.none
-                )
-
-        ( Ready, SentRequest request, _ ) ->
-            ( { model | requestQueue = model.requestQueue ++ [ request ] }
-            , Cmd.none
-            , OutMsg.none
-            )
-
-        ( Ready, ReceivedResponse ((Ok response) as result), request :: restRequests ) ->
-            let
-                usages =
-                    responseToUsages request.word True response
-
-                formWords =
-                    getFormWords usages
-            in
-            case ( formWords, restRequests ) of
-                ( formWord :: _, _ ) ->
-                    getFromCacheOrUpdate
-                        formWord
-                        ( putToCache
-                            request.word
-                            result
-                            { model | state = ResolvingForm usages (getFormWords usages) }
-                        , getDefinitionsInternal formWord
-                        , OutMsg.none
-                        )
-
-                ( [], nextRequest :: _ ) ->
-                    getFromCacheOrUpdate
-                        nextRequest.word
-                        ( putToCache
-                            request.word
-                            result
-                            { model | requestQueue = restRequests }
-                        , sendRequest nextRequest
-                        , OutMsg.some <| request.toMsg (Ok usages)
-                        )
-
-                ( [], [] ) ->
-                    ( putToCache
-                        request.word
-                        result
-                        { model | requestQueue = [] }
-                    , Cmd.none
-                    , OutMsg.some <| request.toMsg (Ok usages)
-                    )
-
-        ( Ready, ReceivedResponse (Err err), request :: restRequests ) ->
-            case restRequests of
-                nextRequest :: _ ->
-                    getFromCacheOrUpdate
-                        nextRequest.word
-                        ( { model | requestQueue = restRequests }
-                        , sendRequest nextRequest
-                        , OutMsg.some <| request.toMsg (Err err)
-                        )
+    case msg of
+        SentRequest request ->
+            case request.words of
+                word :: rest ->
+                    getFromCacheOrRequest
+                        model
+                        word
+                        { state = RequestBaseWord
+                        , config = { request | words = rest }
+                        , results = []
+                        }
 
                 [] ->
-                    ( { model | requestQueue = [] }
+                    ( model
                     , Cmd.none
-                    , OutMsg.some <| request.toMsg (Err err)
+                    , OutMsg.some <| request.toMsg []
                     )
 
-        ( ResolvingForm _ _, SentRequest request, _ ) ->
-            ( { model | requestQueue = model.requestQueue ++ [ request ] }
-            , Cmd.none
-            , OutMsg.none
-            )
-
-        ( ResolvingForm usages (formWord :: restFormWords), ReceivedResponse ((Ok response) as result), request :: restRequests ) ->
+        ReceivedResponse word ({ state, config, results } as ctx) result ->
             let
-                formWordUsages =
-                    responseToUsages formWord False response
-
-                newUsages =
-                    setFormWordInUsages formWord formWordUsages usages
+                newModel =
+                    result
+                        |> Result.map (putToCache word model)
+                        |> Result.withDefault model
             in
-            case ( restFormWords, restRequests ) of
-                ( nextFormWord :: _, _ ) ->
-                    getFromCacheOrUpdate
-                        nextFormWord
-                        ( putToCache
-                            formWord
-                            result
-                            { model | state = ResolvingForm newUsages restFormWords }
-                        , getDefinitionsInternal nextFormWord
-                        , OutMsg.none
-                        )
+            case ( state, result ) of
+                ( RequestBaseWord, Err err ) ->
+                    case config.words of
+                        nextWord :: restWords ->
+                            getFromCacheOrRequest
+                                newModel
+                                nextWord
+                                { state = RequestBaseWord
+                                , config = { config | words = restWords }
+                                , results = results ++ [ Err err ]
+                                }
 
-                ( [], nextRequest :: _ ) ->
-                    getFromCacheOrUpdate
-                        nextRequest.word
-                        ( putToCache
-                            formWord
-                            result
-                            { model | state = Ready, requestQueue = restRequests }
-                        , sendRequest nextRequest
-                        , OutMsg.some <| request.toMsg (Ok newUsages)
-                        )
+                        [] ->
+                            ( newModel
+                            , Cmd.none
+                            , OutMsg.some <|
+                                config.toMsg (results ++ [ Err err ])
+                            )
 
-                ( [], [] ) ->
-                    ( putToCache
-                        formWord
-                        result
-                        { model | state = Ready, requestQueue = [] }
-                    , Cmd.none
-                    , OutMsg.some <| request.toMsg (Ok newUsages)
-                    )
+                ( RequestBaseWord, Ok response ) ->
+                    let
+                        usages =
+                            responseToUsages word True response
 
-        ( ResolvingForm usages (_ :: restFormWords), ReceivedResponse (Err err), request :: restRequests ) ->
-            case ( restFormWords, restRequests ) of
-                ( nextFormWord :: _, _ ) ->
-                    getFromCacheOrUpdate
-                        nextFormWord
-                        ( { model | state = ResolvingForm usages restFormWords }
-                        , getDefinitionsInternal nextFormWord
-                        , OutMsg.none
-                        )
+                        formWords =
+                            getFormWords usages
+                    in
+                    case ( config.words, formWords ) of
+                        ( _, nextFormWord :: rest ) ->
+                            getFromCacheOrRequest
+                                newModel
+                                nextFormWord
+                                { ctx
+                                    | state =
+                                        RequestFormWords
+                                            { usages = usages
+                                            , formWords = rest
+                                            }
+                                }
 
-                ( [], nextRequest :: _ ) ->
-                    getFromCacheOrUpdate
-                        nextRequest.word
-                        ( { model | state = Ready, requestQueue = restRequests }
-                        , sendRequest nextRequest
-                        , OutMsg.some <| request.toMsg (Err err)
-                        )
+                        ( nextWord :: restWords, [] ) ->
+                            getFromCacheOrRequest
+                                newModel
+                                nextWord
+                                { state = RequestBaseWord
+                                , config = { config | words = restWords }
+                                , results = results ++ [ Ok usages ]
+                                }
 
-                ( [], [] ) ->
-                    ( { model | state = Ready, requestQueue = [] }
-                    , Cmd.none
-                    , OutMsg.some <| request.toMsg (Err err)
-                    )
+                        ( [], [] ) ->
+                            ( newModel
+                            , Cmd.none
+                            , OutMsg.some <|
+                                config.toMsg
+                                    (results ++ [ Ok usages ])
+                            )
 
-        ( ResolvingForm _ [], ReceivedResponse _, _ ) ->
-            ( { model | state = Ready }, Cmd.none, OutMsg.none )
+                ( RequestFormWords { usages, formWords }, formResult ) ->
+                    let
+                        newUsages =
+                            case formResult of
+                                Ok response ->
+                                    setFormWordInUsages
+                                        word
+                                        (responseToUsages
+                                            word
+                                            False
+                                            response
+                                        )
+                                        usages
 
-        ( _, ReceivedResponse _, [] ) ->
-            ( { model | state = Ready }, Cmd.none, OutMsg.none )
+                                _ ->
+                                    usages
+                    in
+                    case ( config.words, formWords ) of
+                        ( _, nextFormWord :: rest ) ->
+                            getFromCacheOrRequest
+                                newModel
+                                nextFormWord
+                                { ctx
+                                    | state =
+                                        RequestFormWords
+                                            { usages = newUsages
+                                            , formWords = rest
+                                            }
+                                }
+
+                        ( nextWord :: restWords, [] ) ->
+                            getFromCacheOrRequest
+                                newModel
+                                nextWord
+                                { state = RequestBaseWord
+                                , config = { config | words = restWords }
+                                , results = results ++ [ Ok newUsages ]
+                                }
+
+                        ( [], [] ) ->
+                            ( newModel
+                            , Cmd.none
+                            , OutMsg.some <|
+                                config.toMsg
+                                    (results ++ [ Ok newUsages ])
+                            )
 
 
-sendRequest : RequestConfig rootMsg -> Cmd (Msg rootMsg)
-sendRequest request =
+sendRequest : String -> RequestCtx rootMsg -> Cmd (Msg rootMsg)
+sendRequest word state =
     Http.get
-        { url = wiktionaryUrl request.word
-        , expect = Http.expectJson ReceivedResponse responseDecoder
+        { url = wiktionaryUrl word
+        , expect = Http.expectJson (ReceivedResponse word state) responseDecoder
         }
 
 
-putToCache : String -> Result Http.Error Response -> Model rootMsg -> Model rootMsg
-putToCache word result model =
-    result
-        |> Result.toMaybe
-        |> Maybe.map
-            (\response ->
-                { model | responseCache = Dict.insert word response model.responseCache }
-            )
-        |> Maybe.withDefault model
+putToCache : String -> Model -> Response -> Model
+putToCache word model response =
+    { model | responseCache = Dict.insert word response model.responseCache }
 
 
-getFromCacheOrUpdate :
-    String
-    -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
-    -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
-getFromCacheOrUpdate word (( model, _, outMsg ) as orUpdate) =
+getFromCacheOrRequest :
+    Model
+    -> String
+    -> RequestCtx rootMsg
+    -> ( Model, Cmd (Msg rootMsg), OutMsg rootMsg )
+getFromCacheOrRequest model word state =
     case Dict.get word model.responseCache of
         Just response ->
-            update (ReceivedResponse (Ok response)) model
-                |> Triple.mapThird (OutMsg.combine outMsg)
+            update (ReceivedResponse word state (Ok response)) model
 
         Nothing ->
-            orUpdate
+            ( model, sendRequest word state, OutMsg.none )
 
 
 getFormWords : Usages -> List String
@@ -355,7 +293,7 @@ setFormWordInUsages word usagesOfFormWord (Usages usages) =
 -- SUBSCRIPTIONS
 
 
-subscriptions : Model rootMsg -> Sub (Msg rootMsg)
+subscriptions : Model -> Sub (Msg rootMsg)
 subscriptions _ =
     Sub.none
 
@@ -365,24 +303,9 @@ subscriptions _ =
 
 
 type alias RequestConfig msg =
-    { word : String
-    , toMsg : Result Http.Error Usages -> msg
+    { words : List String
+    , toMsg : List (Result Http.Error Usages) -> msg
     }
-
-
-
--- INTERNAL API
-
-
-getDefinitionsInternal : String -> Cmd (Msg rootMsg)
-getDefinitionsInternal word =
-    Http.get
-        { url = wiktionaryUrl word
-        , expect =
-            Http.expectJson
-                ReceivedResponse
-                responseDecoder
-        }
 
 
 
@@ -424,7 +347,11 @@ definitionDecoder =
     Decode.map3 DefinitionResponse
         (Decode.maybe (Decode.field "description" Decode.string))
         (Decode.field "definition" Decode.string)
-        (Decode.maybe (Decode.field "parsedExamples" (Decode.list parsedExamplesDecoder)))
+        (Decode.maybe
+            (Decode.field "parsedExamples"
+                (Decode.list parsedExamplesDecoder)
+            )
+        )
 
 
 type alias ParsedExampleResponse =
@@ -492,7 +419,9 @@ collectBaseFormWordsFromNode words nodes =
 
         (Parser.Element _ _ childNodes) :: rest ->
             collectBaseFormWordsFromNode
-                (Set.union words (collectBaseFormWordsFromNode words childNodes))
+                (Set.union words
+                    (collectBaseFormWordsFromNode words childNodes)
+                )
                 rest
 
         _ :: rest ->
@@ -574,9 +503,68 @@ nodeToText node =
 
 
 
+-- TRANSFORMERS
+
+
+responseToUsages : String -> Bool -> Response -> Usages
+responseToUsages currentWord doFormLookup response =
+    response.nl
+        |> Maybe.map
+            (List.map
+                (usageResponseToDefinitions currentWord doFormLookup)
+            )
+        |> Maybe.withDefault []
+        |> Usages
+
+
+usageResponseToDefinitions : String -> Bool -> UsageResponse -> Definitions
+usageResponseToDefinitions currentWord doFormLookup usage =
+    List.map
+        (definitionResponseToDefinition currentWord doFormLookup)
+        usage.definitions
+        |> List.filter (\definition -> definition.text /= "")
+        |> Definitions
+
+
+definitionResponseToDefinition :
+    String
+    -> Bool
+    -> DefinitionResponse
+    -> Definition
+definitionResponseToDefinition currentWord doFormLookup definition =
+    { text = htmlToText definition.definition
+    , examples =
+        Maybe.withDefault [] definition.parsedExamples
+            |> List.map parsedExampleResponseToExample
+    , formUsages =
+        if doFormLookup then
+            collectBaseFormFordsFromHtml currentWord definition.definition
+                |> List.map
+                    (\word ->
+                        { word = word
+                        , usages = Usages []
+                        }
+                    )
+
+        else
+            []
+    }
+
+
+parsedExampleResponseToExample : ParsedExampleResponse -> Example
+parsedExampleResponseToExample parsedExample =
+    { example = htmlToText parsedExample.example
+    , translation = Maybe.map htmlToText parsedExample.translation
+    }
+
+
+
 -- BUILDERS
 
 
 wiktionaryUrl : String -> String
 wiktionaryUrl word =
-    crossOrigin "https://en.wiktionary.org/api/rest_v1/page/definition" [ word ] []
+    crossOrigin
+        "https://en.wiktionary.org/api/rest_v1/page/definition"
+        [ word ]
+        []

@@ -51,11 +51,11 @@ googleInitialize msg =
 
 
 wiktionary :
-    (Result Http.Error Wiktionary.Usages -> msg)
-    -> String
+    (List (Result Http.Error Wiktionary.Usages) -> msg)
+    -> List String
     -> Effect msg
-wiktionary toMsg word =
-    Wiktionary <| { word = word, toMsg = toMsg }
+wiktionary toMsg words =
+    Wiktionary <| { words = words, toMsg = toMsg }
 
 
 uuid : (String -> msg) -> Effect msg
@@ -123,7 +123,7 @@ map toMsg msg =
 
         Wiktionary request ->
             Wiktionary
-                { word = request.word
+                { words = request.words
                 , toMsg = request.toMsg >> toMsg
                 }
 
