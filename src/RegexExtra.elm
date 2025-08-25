@@ -1,4 +1,11 @@
-module RegexExtra exposing (newLines, sentenceSplit, space, styleTag, tag)
+module RegexExtra exposing
+    ( newLines
+    , sentenceFilter
+    , sentenceSplit
+    , space
+    , styleTag
+    , tag
+    )
 
 import Regex exposing (Regex)
 
@@ -31,6 +38,11 @@ tag =
 styleTag : Regex
 styleTag =
     regex "<style[^>]*>.*?<\\/style>"
+
+
+sentenceFilter : Regex
+sentenceFilter =
+    regex "^“([^”]+)”\\n\\n\\w+ \\w+\\n[^\\n]+\\n[^\\n]+\\n\\w+ \\w+ \\w+ \\w+ \\w+ \\w+ \\w+.$"
 
 
 

@@ -79,7 +79,6 @@ import Icon.Trash exposing (trashIcon)
 import Icon.WarningCircle exposing (warningCircleIcon)
 import Json.Decode as Decode
 import Json.Encode as Encode
-import Platform exposing (Task)
 import Port.Clipboard as Clipboard
 import Port.LocalStorage as LocalStorage
 import Regex
@@ -342,16 +341,33 @@ update msg ({ mining, overview } as model) =
             let
                 trimmed =
                     String.trim str
+
+                processed =
+                    case
+                        Regex.find
+                            RegexExtra.sentenceFilter
+                            trimmed
+                    of
+                        { submatches } :: _ ->
+                            case submatches of
+                                (Just match) :: _ ->
+                                    match
+
+                                _ ->
+                                    trimmed
+
+                        _ ->
+                            trimmed
             in
-            if trimmed == mining.sentence then
+            if processed == mining.sentence then
                 ( model, Cmd.none, Effect.none )
 
             else
                 ( { model
                     | mining =
                         { mining
-                            | sentence = trimmed
-                            , words = RegexExtra.sentenceSplit str
+                            | sentence = processed
+                            , words = RegexExtra.sentenceSplit processed
                             , selected = Nothing
                             , definitionState = DefinitionWordNotSelected
                         }

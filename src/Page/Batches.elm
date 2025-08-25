@@ -45,7 +45,7 @@ import Icon.Info exposing (infoIcon)
 import Icon.Loading exposing (loadingIcon)
 import Icon.WarningCircle exposing (warningCircleIcon)
 import Json.Decode as Decode
-import Json.Encode as Encode exposing (encode)
+import Json.Encode as Encode
 import Port.Anki as Anki exposing (ModelRequiredFields(..))
 import Port.LocalStorage as LocalStorage
 import Regex
