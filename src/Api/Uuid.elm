@@ -1,6 +1,5 @@
 module Api.Uuid exposing
-    ( Action(..)
-    , Model
+    ( Model
     , Msg(..)
     , init
     , subscriptions
@@ -8,6 +7,7 @@ module Api.Uuid exposing
     )
 
 import Api.OutMsg as OutMsg exposing (OutMsg)
+import Effect exposing (Effect, UuidAction(..))
 import UUID as Uuid
 
 
@@ -29,25 +29,31 @@ init seeds =
 
 
 type Msg rootMsg
-    = SentRequest (Action rootMsg)
+    = SentRequest (Effect rootMsg) (UuidAction rootMsg)
 
 
 update : Msg rootMsg -> Model -> ( Model, Cmd (Msg rootMsg), OutMsg rootMsg )
-update (SentRequest action) model =
+update (SentRequest effect action) model =
     case action of
-        Single toMsg ->
+        SingleUuid toMsg ->
             let
                 ( uuid, newSeeds ) =
                     Uuid.step model
             in
-            ( newSeeds, Cmd.none, OutMsg.some <| toMsg <| Uuid.toString uuid )
+            ( newSeeds
+            , Cmd.none
+            , OutMsg.some effect (toMsg <| Uuid.toString uuid)
+            )
 
-        Multiple num toMsg ->
+        MultipleUuids num toMsg ->
             let
                 ( uuids, newSeeds ) =
                     multiple num model []
             in
-            ( newSeeds, Cmd.none, OutMsg.some <| toMsg <| uuids )
+            ( newSeeds
+            , Cmd.none
+            , OutMsg.some effect (toMsg uuids)
+            )
 
 
 multiple : Int -> Uuid.Seeds -> List String -> ( List String, Uuid.Seeds )
@@ -61,15 +67,6 @@ multiple num seeds final =
                 Uuid.step seeds
         in
         multiple (num - 1) newSeeds (Uuid.toString uuid :: final)
-
-
-
--- EXTERNAL API
-
-
-type Action rootMsg
-    = Single (String -> rootMsg)
-    | Multiple Int (List String -> rootMsg)
 
 
 

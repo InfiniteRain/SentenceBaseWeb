@@ -1,8 +1,5 @@
 module Api.Google exposing
-    ( Action(..)
-    , InitializeFailure(..)
-    , InitializeUpdate(..)
-    , Model
+    ( Model
     , Msg(..)
     , init
     , subscriptions
@@ -14,6 +11,13 @@ import Api.Google.Exchange.SheetsCmd as DriveCmd exposing (SheetsCmd)
 import Api.Google.Exchange.Task as Task
 import Api.Google.Migration as Migration
 import Api.OutMsg as OutMsg exposing (OutMsg(..))
+import Effect
+    exposing
+        ( Effect
+        , GoogleAction(..)
+        , InitializeFailure(..)
+        , InitializeUpdate(..)
+        )
 import Json.Decode as Decode
 import Json.Encode as Encode
 import Task as PlatformTask
@@ -25,19 +29,19 @@ import TaskPort
 
 
 type alias Model rootMsg =
-    { state : State
-    , requestQueue : List (SheetsCmd rootMsg)
+    { state : State rootMsg
+    , requestQueue : List ( Effect rootMsg, SheetsCmd rootMsg )
     , initializeMsg : Maybe (InitializeUpdate -> rootMsg)
     , appFolderId : String
     , mainSheetId : String
     }
 
 
-type State
+type State rootMsg
     = Uninitialized
-    | Authenticating
-    | SettingUpAppFolder
-    | Migrating Migration.Model
+    | Authenticating (Effect rootMsg)
+    | SettingUpAppFolder (Effect rootMsg)
+    | Migrating (Effect rootMsg) Migration.Model
     | Ready
 
 
@@ -60,7 +64,7 @@ init _ =
 type Msg rootMsg
     = GotInitializedResult (TaskPort.Result ())
     | GotAuthenticationResult (TaskPort.Result String)
-    | SentAction (Action rootMsg)
+    | SentAction (Effect rootMsg) (GoogleAction rootMsg)
     | GotActionResponse rootMsg
     | GotFindAppFolderResponse (Result Task.Error Drive.ResponseFileList)
     | GotCreateAppFolderResponse (Result Task.Error Drive.ResponseFileCreate)
@@ -75,116 +79,144 @@ update :
     -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
 update msg model =
     case ( model.state, msg ) of
-        ( Uninitialized, SentAction (Initialize toMsg) ) ->
-            ( { model | state = Authenticating, initializeMsg = Just toMsg }
+        ( Uninitialized, SentAction effect (Initialize toMsg) ) ->
+            ( { model
+                | state = Authenticating effect
+                , initializeMsg = Just toMsg
+              }
             , PlatformTask.attempt GotAuthenticationResult googleGetToken
-            , maybeSendInitializationUpdate model AuthenticatingApi
+            , maybeSendInitializationUpdate model effect AuthenticatingApi
             )
 
-        ( Authenticating, GotAuthenticationResult (Ok _) ) ->
-            ( { model | state = SettingUpAppFolder }
+        ( Authenticating effect, GotAuthenticationResult (Ok _) ) ->
+            ( { model | state = SettingUpAppFolder effect }
             , Drive.findAppFoldersRequest
                 |> Task.driveAttempt GotFindAppFolderResponse
-            , maybeSendInitializationUpdate model LocatingAppFolder
+            , maybeSendInitializationUpdate model effect LocatingAppFolder
             )
 
-        ( Authenticating, GotAuthenticationResult (Err err) ) ->
+        ( Authenticating effect, GotAuthenticationResult (Err err) ) ->
             ( { model | state = Uninitialized }
             , Cmd.none
-            , maybeSendInitializationUpdate model
+            , maybeSendInitializationUpdate
+                model
+                effect
                 (Failed <| ApiAuthentication err)
             )
 
-        ( SettingUpAppFolder, GotFindAppFolderResponse (Ok response) ) ->
+        ( SettingUpAppFolder effect, GotFindAppFolderResponse (Ok response) ) ->
             case response.files of
                 file :: _ ->
                     ( { model | appFolderId = file.id }
                     , Drive.findMainSheetRequest file.id
                         |> Task.driveAttempt GotFindMainSheetResponse
-                    , maybeSendInitializationUpdate model LocatingMainSheet
+                    , maybeSendInitializationUpdate
+                        model
+                        effect
+                        LocatingMainSheet
                     )
 
                 [] ->
                     ( model
                     , Drive.createAppFolderRequest
                         |> Task.driveAttempt GotCreateAppFolderResponse
-                    , maybeSendInitializationUpdate model CreatingMainSheet
+                    , maybeSendInitializationUpdate
+                        model
+                        effect
+                        CreatingMainSheet
                     )
 
-        ( SettingUpAppFolder, GotFindAppFolderResponse (Err err) ) ->
+        ( SettingUpAppFolder effect, GotFindAppFolderResponse (Err err) ) ->
             ( { model | state = Uninitialized }
             , Cmd.none
-            , maybeSendInitializationUpdate model
+            , maybeSendInitializationUpdate
+                model
+                effect
                 (Failed <| AppFolderLocation err)
             )
 
-        ( SettingUpAppFolder, GotCreateAppFolderResponse (Ok response) ) ->
+        ( SettingUpAppFolder effect, GotCreateAppFolderResponse (Ok response) ) ->
             ( { model | appFolderId = response.id }
             , Drive.createMainSheetRequest response.id
                 |> Task.driveAttempt GotCreateMainSheetResponse
-            , maybeSendInitializationUpdate model CreatingMainSheet
+            , maybeSendInitializationUpdate model effect CreatingMainSheet
             )
 
-        ( SettingUpAppFolder, GotCreateAppFolderResponse (Err err) ) ->
+        ( SettingUpAppFolder effect, GotCreateAppFolderResponse (Err err) ) ->
             ( { model | state = Uninitialized }
             , Cmd.none
-            , maybeSendInitializationUpdate model
+            , maybeSendInitializationUpdate
+                model
+                effect
                 (Failed <| AppFolderCreation err)
             )
 
-        ( SettingUpAppFolder, GotFindMainSheetResponse (Ok response) ) ->
+        ( SettingUpAppFolder effect, GotFindMainSheetResponse (Ok response) ) ->
             case response.files of
                 file :: _ ->
-                    transitionToMigrating { model | mainSheetId = file.id }
+                    transitionToMigrating
+                        { model | mainSheetId = file.id }
+                        effect
 
                 [] ->
                     ( model
                     , Drive.createMainSheetRequest
                         model.appFolderId
                         |> Task.driveAttempt GotCreateMainSheetResponse
-                    , maybeSendInitializationUpdate model CreatingMainSheet
+                    , maybeSendInitializationUpdate
+                        model
+                        effect
+                        CreatingMainSheet
                     )
 
-        ( SettingUpAppFolder, GotFindMainSheetResponse (Err err) ) ->
+        ( SettingUpAppFolder effect, GotFindMainSheetResponse (Err err) ) ->
             ( { model | state = Uninitialized }
             , Cmd.none
-            , maybeSendInitializationUpdate model
+            , maybeSendInitializationUpdate
+                model
+                effect
                 (Failed <| MainSheetLocation err)
             )
 
-        ( SettingUpAppFolder, GotCreateMainSheetResponse (Ok response) ) ->
-            transitionToMigrating { model | mainSheetId = response.id }
+        ( SettingUpAppFolder effect, GotCreateMainSheetResponse (Ok response) ) ->
+            transitionToMigrating { model | mainSheetId = response.id } effect
 
-        ( SettingUpAppFolder, GotCreateMainSheetResponse (Err err) ) ->
+        ( SettingUpAppFolder effect, GotCreateMainSheetResponse (Err err) ) ->
             ( { model | state = Uninitialized }
             , Cmd.none
-            , maybeSendInitializationUpdate model
+            , maybeSendInitializationUpdate
+                model
+                effect
                 (Failed <| MainSheetCreation err)
             )
 
-        ( Migrating migrationModel, GotMigrationMsg migrationMsg ) ->
+        ( Migrating effect migrationModel, GotMigrationMsg migrationMsg ) ->
             let
                 ( newMigrationModel, migrationCmd, migrationOutMsg ) =
                     Migration.update migrationMsg migrationModel
             in
             case migrationOutMsg of
                 Migration.None ->
-                    ( { model | state = Migrating newMigrationModel }
+                    ( { model | state = Migrating effect newMigrationModel }
                     , Cmd.map GotMigrationMsg migrationCmd
                     , OutMsg.none
                     )
 
                 Migration.Update migrationId ->
-                    ( { model | state = Migrating newMigrationModel }
+                    ( { model | state = Migrating effect newMigrationModel }
                     , Cmd.map GotMigrationMsg migrationCmd
-                    , maybeSendInitializationUpdate model
+                    , maybeSendInitializationUpdate
+                        model
+                        effect
                         (MigratingMainSheet migrationId)
                     )
 
                 Migration.Fail err ->
                     ( { model | state = Uninitialized }
                     , Cmd.none
-                    , maybeSendInitializationUpdate model
+                    , maybeSendInitializationUpdate
+                        model
+                        effect
                         (Failed <|
                             MainSheetMigration
                                 (List.head migrationModel.migrationQueue
@@ -196,10 +228,14 @@ update msg model =
                     )
 
                 Migration.Done ->
-                    transitionToReady model
+                    transitionToReady model effect
 
-        ( Ready, SentAction (SendRequest sheetsCmd) ) ->
-            ( { model | requestQueue = model.requestQueue ++ [ sheetsCmd ] }
+        ( Ready, SentAction effect (SendRequest sheetsCmd) ) ->
+            ( { model
+                | requestQueue =
+                    model.requestQueue
+                        ++ [ ( effect, sheetsCmd ) ]
+              }
             , if List.isEmpty model.requestQueue then
                 DriveCmd.unwrap model.mainSheetId sheetsCmd
                     |> Cmd.map GotActionResponse
@@ -211,34 +247,38 @@ update msg model =
 
         ( Ready, GotActionResponse response ) ->
             case model.requestQueue of
-                _ :: [] ->
+                ( effect, _ ) :: [] ->
                     ( { model | requestQueue = [] }
                     , Cmd.none
-                    , OutMsg.some response
+                    , OutMsg.some effect response
                     )
 
-                _ :: nextCmd :: rest ->
-                    ( { model | requestQueue = nextCmd :: rest }
+                ( effect, _ ) :: (( _, nextCmd ) as nextPair) :: rest ->
+                    ( { model | requestQueue = nextPair :: rest }
                     , DriveCmd.unwrap model.mainSheetId nextCmd
                         |> Cmd.map GotActionResponse
-                    , OutMsg.some response
+                    , OutMsg.some effect response
                     )
 
                 [] ->
                     ( model, Cmd.none, OutMsg.none )
 
-        ( _, SentAction (SendRequest sheetsCmd) ) ->
-            ( { model | requestQueue = model.requestQueue ++ [ sheetsCmd ] }
+        ( _, SentAction effect (SendRequest sheetsCmd) ) ->
+            ( { model
+                | requestQueue =
+                    model.requestQueue
+                        ++ [ ( effect, sheetsCmd ) ]
+              }
             , Cmd.none
             , OutMsg.none
             )
 
         ( _, GotActionResponse response ) ->
             case model.requestQueue of
-                _ :: rest ->
+                ( effect, _ ) :: rest ->
                     ( { model | requestQueue = rest }
                     , Cmd.none
-                    , OutMsg.some response
+                    , OutMsg.some effect response
                     )
 
                 [] ->
@@ -250,53 +290,57 @@ update msg model =
 
 transitionToMigrating :
     Model rootMsg
+    -> Effect rootMsg
     -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
-transitionToMigrating model =
+transitionToMigrating model effect =
     let
         ( migrationModel, migrationCmd ) =
             Migration.init model.mainSheetId
     in
-    ( { model | state = Migrating migrationModel }
+    ( { model | state = Migrating effect migrationModel }
     , Cmd.map GotMigrationMsg migrationCmd
-    , maybeSendInitializationUpdate model CheckingMainSheetMigrations
+    , maybeSendInitializationUpdate model effect CheckingMainSheetMigrations
     )
 
 
 transitionToReady :
     Model rootMsg
+    -> Effect rootMsg
     -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
-transitionToReady model =
+transitionToReady model effect =
     case model.requestQueue of
         request :: _ ->
             ( { model | state = Ready }
-            , DriveCmd.unwrap model.mainSheetId request
+            , DriveCmd.unwrap model.mainSheetId (Tuple.second request)
                 |> Cmd.map GotActionResponse
-            , maybeSendInitializationUpdate model Done
+            , maybeSendInitializationUpdate model effect Done
             )
 
         [] ->
             ( { model | state = Ready }
             , Cmd.none
-            , maybeSendInitializationUpdate model Done
+            , maybeSendInitializationUpdate model effect Done
             )
 
 
 maybeSendInitializationUpdate :
     Model rootMsg
+    -> Effect rootMsg
     -> InitializeUpdate
     -> OutMsg rootMsg
-maybeSendInitializationUpdate model initializeUpdate =
+maybeSendInitializationUpdate model effect initializeUpdate =
     model.initializeMsg
-        |> Maybe.map (sendInitializationUpdate initializeUpdate)
+        |> Maybe.map (sendInitializationUpdate effect initializeUpdate)
         |> Maybe.withDefault OutMsg.none
 
 
 sendInitializationUpdate :
-    InitializeUpdate
+    Effect rootMsg
+    -> InitializeUpdate
     -> (InitializeUpdate -> rootMsg)
     -> OutMsg rootMsg
-sendInitializationUpdate initializeUpdate toMsg =
-    OutMsg.some <| toMsg <| initializeUpdate
+sendInitializationUpdate effect initializeUpdate toMsg =
+    OutMsg.some effect (toMsg <| initializeUpdate)
 
 
 
@@ -306,37 +350,6 @@ sendInitializationUpdate initializeUpdate toMsg =
 subscriptions : Model rootMsg -> Sub (Msg rootMsg)
 subscriptions _ =
     Sub.none
-
-
-
--- EXTERNAL API
-
-
-type Action msg
-    = Initialize (InitializeUpdate -> msg)
-    | SendRequest (SheetsCmd msg)
-
-
-type InitializeUpdate
-    = InitializingApi
-    | AuthenticatingApi
-    | LocatingAppFolder
-    | CreatingAppFolder
-    | LocatingMainSheet
-    | CreatingMainSheet
-    | CheckingMainSheetMigrations
-    | MigratingMainSheet String
-    | Done
-    | Failed InitializeFailure
-
-
-type InitializeFailure
-    = ApiAuthentication TaskPort.Error
-    | AppFolderLocation Task.Error
-    | AppFolderCreation Task.Error
-    | MainSheetLocation Task.Error
-    | MainSheetCreation Task.Error
-    | MainSheetMigration String Task.Error
 
 
 

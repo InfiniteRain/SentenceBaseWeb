@@ -1,11 +1,11 @@
 module Page.Auth exposing (Model, Msg(..), init, subscriptions, update, view)
 
-import Api.Google as Google
+import Effect
     exposing
-        ( InitializeFailure(..)
+        ( Effect
+        , InitializeFailure(..)
         , InitializeUpdate(..)
         )
-import Effect exposing (Effect)
 import Html exposing (Html, br, button, div, text)
 import Html.Events exposing (onClick)
 import Route
@@ -39,7 +39,7 @@ init session =
 
 
 type Msg
-    = InitializeUpdated Google.InitializeUpdate
+    = InitializeUpdated InitializeUpdate
     | TryAgainClicked
 
 
@@ -73,7 +73,7 @@ update msg ({ session } as model) =
             )
 
 
-initializeUpdateToStatusText : Google.InitializeUpdate -> String
+initializeUpdateToStatusText : InitializeUpdate -> String
 initializeUpdateToStatusText initializeUpdate =
     case initializeUpdate of
         InitializingApi ->

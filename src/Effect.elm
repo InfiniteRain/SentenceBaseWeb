@@ -1,5 +1,16 @@
 module Effect exposing
-    ( Effect
+    ( Definition
+    , Definitions(..)
+    , Effect
+    , Example
+    , FormUsages
+    , GoogleAction(..)
+    , InitializeFailure(..)
+    , InitializeUpdate(..)
+    , ToastAction
+    , ToastCategory(..)
+    , Usages(..)
+    , UuidAction(..)
     , google
     , googleInitialize
     , map
@@ -11,12 +22,10 @@ module Effect exposing
     , wiktionary
     )
 
-import Api.Google as Google exposing (Action(..))
 import Api.Google.Exchange.SheetsCmd as SheetsCmd exposing (SheetsCmd)
-import Api.Uuid as Uuid exposing (Action(..))
-import Api.Wiktionary as Wiktionary
+import Api.Google.Exchange.Task as Task
 import Http
-import Toast
+import TaskPort
 
 
 
@@ -24,11 +33,17 @@ import Toast
 
 
 type Effect msg
+    = Effect
+        { action : Action msg
+        }
+
+
+type Action msg
     = None
-    | Google (Google.Action msg)
-    | Wiktionary (Wiktionary.RequestConfig msg)
-    | Uuid (Uuid.Action msg)
-    | Toast Toast.Config
+    | Google (GoogleAction msg)
+    | Wiktionary (WiktionaryAction msg)
+    | Uuid (UuidAction msg)
+    | Toast ToastAction
 
 
 
@@ -37,40 +52,40 @@ type Effect msg
 
 none : Effect msg
 none =
-    None
+    Effect { action = None }
 
 
 google : SheetsCmd msg -> Effect msg
 google sheetsCmd =
-    Google <| SendRequest sheetsCmd
+    Effect { action = Google <| SendRequest sheetsCmd }
 
 
-googleInitialize : (Google.InitializeUpdate -> msg) -> Effect msg
+googleInitialize : (InitializeUpdate -> msg) -> Effect msg
 googleInitialize msg =
-    Google <| Initialize msg
+    Effect { action = Google <| Initialize msg }
 
 
 wiktionary :
-    (Result Http.Error Wiktionary.Usages -> msg)
+    (Result Http.Error Usages -> msg)
     -> String
     -> Effect msg
 wiktionary toMsg word =
-    Wiktionary <| { word = word, toMsg = toMsg }
+    Effect { action = Wiktionary <| { word = word, toMsg = toMsg } }
 
 
 uuid : (String -> msg) -> Effect msg
 uuid toMsg =
-    Uuid <| Single toMsg
+    Effect { action = Uuid <| SingleUuid toMsg }
 
 
 uuids : Int -> (List String -> msg) -> Effect msg
 uuids num toMsg =
-    Uuid <| Multiple num toMsg
+    Effect { action = Uuid <| MultipleUuids num toMsg }
 
 
-toast : Toast.Config -> Effect msg
-toast config =
-    Toast config
+toast : ToastAction -> Effect msg
+toast action =
+    Effect { action = Toast action }
 
 
 
@@ -81,14 +96,14 @@ match :
     Effect msg
     ->
         { onNone : a
-        , onGoogle : Google.Action msg -> a
-        , onWiktionary : Wiktionary.RequestConfig msg -> a
-        , onUuid : Uuid.Action msg -> a
-        , onToast : Toast.Config -> a
+        , onGoogle : GoogleAction msg -> a
+        , onWiktionary : WiktionaryAction msg -> a
+        , onUuid : UuidAction msg -> a
+        , onToast : ToastAction -> a
         }
     -> a
-match effect { onNone, onGoogle, onWiktionary, onUuid, onToast } =
-    case effect of
+match (Effect effect) { onNone, onGoogle, onWiktionary, onUuid, onToast } =
+    case effect.action of
         None ->
             onNone
 
@@ -110,28 +125,130 @@ match effect { onNone, onGoogle, onWiktionary, onUuid, onToast } =
 
 
 map : (a -> msg) -> Effect a -> Effect msg
-map toMsg msg =
-    case msg of
-        None ->
-            None
+map callback (Effect effect) =
+    Effect
+        { action =
+            case effect.action of
+                None ->
+                    None
 
-        Google (Initialize rootMsg) ->
-            Google <| Initialize <| (toMsg << rootMsg)
+                Google (Initialize rootMsg) ->
+                    Google <| Initialize <| (callback << rootMsg)
 
-        Google (SendRequest cmd) ->
-            Google <| SendRequest <| SheetsCmd.map toMsg cmd
+                Google (SendRequest cmd) ->
+                    Google <| SendRequest <| SheetsCmd.map callback cmd
 
-        Wiktionary request ->
-            Wiktionary
-                { word = request.word
-                , toMsg = request.toMsg >> toMsg
-                }
+                Wiktionary request ->
+                    Wiktionary
+                        { word = request.word
+                        , toMsg = request.toMsg >> callback
+                        }
 
-        Uuid (Single uuidToMsg) ->
-            Uuid <| Single (uuidToMsg >> toMsg)
+                Uuid (SingleUuid uuidToMsg) ->
+                    Uuid <| SingleUuid (uuidToMsg >> callback)
 
-        Uuid (Multiple num uuidToMsg) ->
-            Uuid <| Multiple num (uuidToMsg >> toMsg)
+                Uuid (MultipleUuids num uuidToMsg) ->
+                    Uuid <| MultipleUuids num (uuidToMsg >> callback)
 
-        Toast config ->
-            Toast config
+                Toast config ->
+                    Toast config
+        }
+
+
+
+-- GOOGLE ACTIONS
+
+
+type GoogleAction msg
+    = Initialize (InitializeUpdate -> msg)
+    | SendRequest (SheetsCmd msg)
+
+
+type InitializeUpdate
+    = InitializingApi
+    | AuthenticatingApi
+    | LocatingAppFolder
+    | CreatingAppFolder
+    | LocatingMainSheet
+    | CreatingMainSheet
+    | CheckingMainSheetMigrations
+    | MigratingMainSheet String
+    | Done
+    | Failed InitializeFailure
+
+
+type InitializeFailure
+    = ApiAuthentication TaskPort.Error
+    | AppFolderLocation Task.Error
+    | AppFolderCreation Task.Error
+    | MainSheetLocation Task.Error
+    | MainSheetCreation Task.Error
+    | MainSheetMigration String Task.Error
+
+
+
+-- WICTIONARY ACTIONS
+
+
+type alias WiktionaryAction msg =
+    { word : String
+    , toMsg : Result Http.Error Usages -> msg
+    }
+
+
+
+-- TODO: move these if possible
+
+
+type Usages
+    = Usages (List Definitions)
+
+
+type Definitions
+    = Definitions (List Definition)
+
+
+type alias Definition =
+    { text : String
+    , examples : List Example
+    , formUsages : List FormUsages
+    }
+
+
+type alias FormUsages =
+    { word : String
+    , usages : Usages
+    }
+
+
+type alias Example =
+    { example : String
+    , translation : Maybe String
+    }
+
+
+
+-- UUID ACTIONS
+
+
+type UuidAction rootMsg
+    = SingleUuid (String -> rootMsg)
+    | MultipleUuids Int (List String -> rootMsg)
+
+
+
+-- TOAST ACTIONS
+
+
+type alias ToastAction =
+    { category : ToastCategory
+    , title : String
+    , description : String
+    }
+
+
+type ToastCategory
+    = ToastSuccess
+    | ToastError
+    | ToastInfo
+    | ToastWarning

@@ -18,7 +18,6 @@ import Api.Google.ListConstructor
         , field
         )
 import Api.Google.Model as Model exposing (PendingSentence)
-import Api.Wiktionary as Wiktionary exposing (Definitions(..), Usages(..))
 import Array
 import Basecoat
     exposing
@@ -33,7 +32,7 @@ import Basecoat
         , role
         , tabIndex
         )
-import Effect exposing (Effect(..))
+import Effect exposing (Definitions(..), Effect(..), Usages(..))
 import Html
     exposing
         ( Attribute
@@ -88,7 +87,6 @@ import Session exposing (Session)
 import Set exposing (Set)
 import Task as PlatformTask
 import Time
-import Toast
 
 
 
@@ -260,7 +258,7 @@ type Msg
     | BodyClicked
     | ClipboardUpdated String
     | WordSelected String
-    | DefinitionFetched (Result Http.Error Wiktionary.Usages)
+    | DefinitionFetched (Result Http.Error Effect.Usages)
     | MineClicked
     | AddFetched (Result Task.Error ())
     | TagsClicked
@@ -517,7 +515,7 @@ update msg ({ mining, overview } as model) =
             ( { model | mining = { mining | addState = AddIdle } }
             , Cmd.none
             , Effect.toast
-                { category = Toast.Error
+                { category = Effect.ToastError
                 , title = "Failed to mine sentence"
                 , description = Task.errorToMessage err
                 }
@@ -613,7 +611,7 @@ update msg ({ mining, overview } as model) =
               }
             , Cmd.none
             , Effect.toast
-                { category = Toast.Error
+                { category = Effect.ToastError
                 , title = "Failed to confirm batch"
                 , description = Task.errorToMessage err
                 }
@@ -798,7 +796,7 @@ update msg ({ mining, overview } as model) =
             ( { model | overview = { overview | editState = EditIdle } }
             , Cmd.none
             , Effect.toast
-                { category = Toast.Error
+                { category = Effect.ToastError
                 , title = "Failed to edit sentence"
                 , description = Task.errorToMessage err
                 }
@@ -904,7 +902,7 @@ update msg ({ mining, overview } as model) =
             ( { model | overview = { overview | deleteState = DeleteIdle } }
             , Cmd.none
             , Effect.toast
-                { category = Toast.Error
+                { category = Effect.ToastError
                 , title = "Failed to delete sentence"
                 , description = Task.errorToMessage err
                 }
@@ -1918,12 +1916,12 @@ notFoundView =
         ]
 
 
-usagesView : Wiktionary.Usages -> List (Html Msg)
+usagesView : Effect.Usages -> List (Html Msg)
 usagesView (Usages usages) =
     List.indexedMap definitionsView usages
 
 
-definitionsView : Int -> Wiktionary.Definitions -> Html Msg
+definitionsView : Int -> Effect.Definitions -> Html Msg
 definitionsView index (Definitions definitions) =
     div [ classes [ "card", "p-3", "mt-4", "gap-0" ] ]
         [ header [ classes [ "p-0", "flex", "justify-center" ] ]
@@ -1939,7 +1937,7 @@ definitionsView index (Definitions definitions) =
         ]
 
 
-definitionView : Wiktionary.Definition -> Html Msg
+definitionView : Effect.Definition -> Html Msg
 definitionView definition =
     li [ class "[&:not(:last-child):has(.form-usages)]:mb-3" ] <|
         List.concat
@@ -1949,7 +1947,7 @@ definitionView definition =
             ]
 
 
-formUsagesView : Wiktionary.FormUsages -> Html Msg
+formUsagesView : Effect.FormUsages -> Html Msg
 formUsagesView { word, usages } =
     let
         (Usages formUsages) =

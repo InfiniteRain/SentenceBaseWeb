@@ -1,12 +1,16 @@
 module Api.OutMsg exposing (OutMsg, combine, none, some, toList)
 
+import Effect exposing (Effect)
+
+
+
 -- TYPES
 
 
 type OutMsg rootMsg
     = None
-    | Single rootMsg
-    | Multiple (List rootMsg)
+    | Single (Effect rootMsg) rootMsg
+    | Multiple (List ( Effect rootMsg, rootMsg ))
 
 
 
@@ -18,23 +22,23 @@ none =
     None
 
 
-some : rootMsg -> OutMsg rootMsg
-some rootMsg =
-    Single rootMsg
+some : Effect rootMsg -> rootMsg -> OutMsg rootMsg
+some =
+    Single
 
 
 
 -- ACCESSORS
 
 
-toList : OutMsg rootMsg -> List rootMsg
+toList : OutMsg rootMsg -> List ( Effect rootMsg, rootMsg )
 toList outMsg =
     case outMsg of
         None ->
             []
 
-        Single rootMsg ->
-            [ rootMsg ]
+        Single effect rootMsg ->
+            [ ( effect, rootMsg ) ]
 
         Multiple rootMsgs ->
             rootMsgs

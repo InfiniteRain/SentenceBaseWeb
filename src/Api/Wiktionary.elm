@@ -1,12 +1,7 @@
 module Api.Wiktionary exposing
-    ( Definition
-    , Definitions(..)
-    , Example
-    , FormUsages
-    , Model
+    ( Model
     , Msg(..)
     , RequestConfig
-    , Usages(..)
     , init
     , subscriptions
     , update
@@ -14,6 +9,7 @@ module Api.Wiktionary exposing
 
 import Api.OutMsg as OutMsg exposing (OutMsg(..))
 import Dict exposing (Dict)
+import Effect exposing (Effect)
 import Html.Parser as Parser exposing (Node(..))
 import Http
 import Json.Decode as Decode exposing (Decoder)
@@ -30,53 +26,42 @@ import Url.Builder exposing (crossOrigin)
 
 type alias Model rootMsg =
     { state : State
-    , requestQueue : List (RequestConfig rootMsg)
+    , requestQueue : List ( Effect rootMsg, RequestConfig rootMsg )
     , responseCache : Dict String Response
     }
 
 
 type State
     = Ready
-    | ResolvingForm Usages (List String)
+    | ResolvingForm Effect.Usages (List String)
 
 
-type Usages
-    = Usages (List Definitions)
-
-
-responseToUsages : String -> Bool -> Response -> Usages
+responseToUsages : String -> Bool -> Response -> Effect.Usages
 responseToUsages currentWord doFormLookup response =
     response.nl
         |> Maybe.map (List.map (usageResponseToDefinitions currentWord doFormLookup))
         |> Maybe.withDefault []
-        |> Usages
+        |> Effect.Usages
 
 
-type Definitions
-    = Definitions (List Definition)
-
-
-usageResponseToDefinitions : String -> Bool -> UsageResponse -> Definitions
+usageResponseToDefinitions :
+    String
+    -> Bool
+    -> UsageResponse
+    -> Effect.Definitions
 usageResponseToDefinitions currentWord doFormLookup usage =
-    List.map (definitionResponseToDefinition currentWord doFormLookup) usage.definitions
+    List.map
+        (definitionResponseToDefinition currentWord doFormLookup)
+        usage.definitions
         |> List.filter (\definition -> definition.text /= "")
-        |> Definitions
+        |> Effect.Definitions
 
 
-type alias Definition =
-    { text : String
-    , examples : List Example
-    , formUsages : List FormUsages
-    }
-
-
-type alias FormUsages =
-    { word : String
-    , usages : Usages
-    }
-
-
-definitionResponseToDefinition : String -> Bool -> DefinitionResponse -> Definition
+definitionResponseToDefinition :
+    String
+    -> Bool
+    -> DefinitionResponse
+    -> Effect.Definition
 definitionResponseToDefinition currentWord doFormLookup definition =
     { text = htmlToText definition.definition
     , examples =
@@ -88,7 +73,7 @@ definitionResponseToDefinition currentWord doFormLookup definition =
                 |> List.map
                     (\word ->
                         { word = word
-                        , usages = Usages []
+                        , usages = Effect.Usages []
                         }
                     )
 
@@ -97,13 +82,7 @@ definitionResponseToDefinition currentWord doFormLookup definition =
     }
 
 
-type alias Example =
-    { example : String
-    , translation : Maybe String
-    }
-
-
-parsedExampleResponseToExample : ParsedExampleResponse -> Example
+parsedExampleResponseToExample : ParsedExampleResponse -> Effect.Example
 parsedExampleResponseToExample parsedExample =
     { example = htmlToText parsedExample.example
     , translation = Maybe.map htmlToText parsedExample.translation
@@ -125,28 +104,36 @@ init =
 
 
 type Msg rootMsg
-    = SentRequest (RequestConfig rootMsg)
+    = SentRequest (Effect rootMsg) (RequestConfig rootMsg)
     | ReceivedResponse (Result Http.Error Response)
 
 
 update : Msg rootMsg -> Model rootMsg -> ( Model rootMsg, Cmd (Msg rootMsg), OutMsg rootMsg )
 update msg model =
     case ( model.state, msg, model.requestQueue ) of
-        ( Ready, SentRequest request, [] ) ->
+        ( Ready, SentRequest effect request, [] ) ->
             getFromCacheOrUpdate
                 request.word
-                ( { model | requestQueue = model.requestQueue ++ [ request ] }
+                ( { model
+                    | requestQueue =
+                        model.requestQueue
+                            ++ [ ( effect, request ) ]
+                  }
                 , sendRequest request
                 , OutMsg.none
                 )
 
-        ( Ready, SentRequest request, _ ) ->
-            ( { model | requestQueue = model.requestQueue ++ [ request ] }
+        ( Ready, SentRequest effect request, _ ) ->
+            ( { model
+                | requestQueue =
+                    model.requestQueue
+                        ++ [ ( effect, request ) ]
+              }
             , Cmd.none
             , OutMsg.none
             )
 
-        ( Ready, ReceivedResponse ((Ok response) as result), request :: restRequests ) ->
+        ( Ready, ReceivedResponse ((Ok response) as result), ( effect, request ) :: restRequests ) ->
             let
                 usages =
                     responseToUsages request.word True response
@@ -166,7 +153,7 @@ update msg model =
                         , OutMsg.none
                         )
 
-                ( [], nextRequest :: _ ) ->
+                ( [], ( _, nextRequest ) :: _ ) ->
                     getFromCacheOrUpdate
                         nextRequest.word
                         ( putToCache
@@ -174,7 +161,7 @@ update msg model =
                             result
                             { model | requestQueue = restRequests }
                         , sendRequest nextRequest
-                        , OutMsg.some <| request.toMsg (Ok usages)
+                        , OutMsg.some effect (request.toMsg (Ok usages))
                         )
 
                 ( [], [] ) ->
@@ -183,32 +170,36 @@ update msg model =
                         result
                         { model | requestQueue = [] }
                     , Cmd.none
-                    , OutMsg.some <| request.toMsg (Ok usages)
+                    , OutMsg.some effect (request.toMsg (Ok usages))
                     )
 
-        ( Ready, ReceivedResponse (Err err), request :: restRequests ) ->
+        ( Ready, ReceivedResponse (Err err), ( effect, request ) :: restRequests ) ->
             case restRequests of
-                nextRequest :: _ ->
+                ( _, nextRequest ) :: _ ->
                     getFromCacheOrUpdate
                         nextRequest.word
                         ( { model | requestQueue = restRequests }
                         , sendRequest nextRequest
-                        , OutMsg.some <| request.toMsg (Err err)
+                        , OutMsg.some effect (request.toMsg (Err err))
                         )
 
                 [] ->
                     ( { model | requestQueue = [] }
                     , Cmd.none
-                    , OutMsg.some <| request.toMsg (Err err)
+                    , OutMsg.some effect (request.toMsg (Err err))
                     )
 
-        ( ResolvingForm _ _, SentRequest request, _ ) ->
-            ( { model | requestQueue = model.requestQueue ++ [ request ] }
+        ( ResolvingForm _ _, SentRequest effect request, _ ) ->
+            ( { model
+                | requestQueue =
+                    model.requestQueue
+                        ++ [ ( effect, request ) ]
+              }
             , Cmd.none
             , OutMsg.none
             )
 
-        ( ResolvingForm usages (formWord :: restFormWords), ReceivedResponse ((Ok response) as result), request :: restRequests ) ->
+        ( ResolvingForm usages (formWord :: restFormWords), ReceivedResponse ((Ok response) as result), ( effect, request ) :: restRequests ) ->
             let
                 formWordUsages =
                     responseToUsages formWord False response
@@ -228,7 +219,7 @@ update msg model =
                         , OutMsg.none
                         )
 
-                ( [], nextRequest :: _ ) ->
+                ( [], ( _, nextRequest ) :: _ ) ->
                     getFromCacheOrUpdate
                         nextRequest.word
                         ( putToCache
@@ -236,7 +227,7 @@ update msg model =
                             result
                             { model | state = Ready, requestQueue = restRequests }
                         , sendRequest nextRequest
-                        , OutMsg.some <| request.toMsg (Ok newUsages)
+                        , OutMsg.some effect (request.toMsg (Ok newUsages))
                         )
 
                 ( [], [] ) ->
@@ -245,10 +236,10 @@ update msg model =
                         result
                         { model | state = Ready, requestQueue = [] }
                     , Cmd.none
-                    , OutMsg.some <| request.toMsg (Ok newUsages)
+                    , OutMsg.some effect (request.toMsg (Ok newUsages))
                     )
 
-        ( ResolvingForm usages (_ :: restFormWords), ReceivedResponse (Err err), request :: restRequests ) ->
+        ( ResolvingForm usages (_ :: restFormWords), ReceivedResponse (Err err), ( effect, request ) :: restRequests ) ->
             case ( restFormWords, restRequests ) of
                 ( nextFormWord :: _, _ ) ->
                     getFromCacheOrUpdate
@@ -258,18 +249,18 @@ update msg model =
                         , OutMsg.none
                         )
 
-                ( [], nextRequest :: _ ) ->
+                ( [], ( _, nextRequest ) :: _ ) ->
                     getFromCacheOrUpdate
                         nextRequest.word
                         ( { model | state = Ready, requestQueue = restRequests }
                         , sendRequest nextRequest
-                        , OutMsg.some <| request.toMsg (Err err)
+                        , OutMsg.some effect (request.toMsg (Err err))
                         )
 
                 ( [], [] ) ->
                     ( { model | state = Ready, requestQueue = [] }
                     , Cmd.none
-                    , OutMsg.some <| request.toMsg (Err err)
+                    , OutMsg.some effect (request.toMsg (Err err))
                     )
 
         ( ResolvingForm _ [], ReceivedResponse _, _ ) ->
@@ -312,20 +303,20 @@ getFromCacheOrUpdate word (( model, _, outMsg ) as orUpdate) =
             orUpdate
 
 
-getFormWords : Usages -> List String
-getFormWords (Usages usages) =
+getFormWords : Effect.Usages -> List String
+getFormWords (Effect.Usages usages) =
     usages
-        |> List.concatMap (\(Definitions definitions) -> definitions)
+        |> List.concatMap (\(Effect.Definitions definitions) -> definitions)
         |> List.concatMap .formUsages
         |> List.map .word
         |> Set.fromList
         |> Set.toList
 
 
-setFormWordInUsages : String -> Usages -> Usages -> Usages
-setFormWordInUsages word usagesOfFormWord (Usages usages) =
+setFormWordInUsages : String -> Effect.Usages -> Effect.Usages -> Effect.Usages
+setFormWordInUsages word usagesOfFormWord (Effect.Usages usages) =
     List.map
-        (\(Definitions definitions) ->
+        (\(Effect.Definitions definitions) ->
             List.map
                 (\definition ->
                     { definition
@@ -345,10 +336,10 @@ setFormWordInUsages word usagesOfFormWord (Usages usages) =
                     }
                 )
                 definitions
-                |> Definitions
+                |> Effect.Definitions
         )
         usages
-        |> Usages
+        |> Effect.Usages
 
 
 
@@ -366,7 +357,7 @@ subscriptions _ =
 
 type alias RequestConfig msg =
     { word : String
-    , toMsg : Result Http.Error Usages -> msg
+    , toMsg : Result Http.Error Effect.Usages -> msg
     }
 
 

@@ -67,7 +67,6 @@ import Route exposing (Route(..), standardizeFragment)
 import Session exposing (Session)
 import Task
 import Time
-import Toast
 import Triple
 import UUID as UuidLib
 import Url exposing (Url)
@@ -320,7 +319,7 @@ type alias Model =
 
 type alias Toast =
     { id : Int
-    , config : Toast.Config
+    , config : Effect.ToastAction
     , hidden : Bool
     }
 
@@ -495,10 +494,14 @@ update msg model =
             )
 
 
-resolveOutMsgUpdates : Model -> Cmd Msg -> List Msg -> ( Model, Cmd Msg )
+resolveOutMsgUpdates :
+    Model
+    -> Cmd Msg
+    -> List ( Effect Msg, Msg )
+    -> ( Model, Cmd Msg )
 resolveOutMsgUpdates model cmd msgs =
     case msgs of
-        msg :: rest ->
+        ( _, msg ) :: rest ->
             let
                 ( newModel, newCmd ) =
                     update msg model
@@ -516,7 +519,7 @@ performEffect model effect =
         , onGoogle =
             \action ->
                 update
-                    (Google.SentAction action
+                    (Google.SentAction effect action
                         |> GotGoogleMsg
                         |> GotApiMsg
                     )
@@ -524,7 +527,7 @@ performEffect model effect =
         , onWiktionary =
             \request ->
                 update
-                    (Wiktionary.SentRequest request
+                    (Wiktionary.SentRequest effect request
                         |> GotWiktionaryMsg
                         |> GotApiMsg
                     )
@@ -532,7 +535,7 @@ performEffect model effect =
         , onUuid =
             \toMsg ->
                 update
-                    (Uuid.SentRequest toMsg
+                    (Uuid.SentRequest effect toMsg
                         |> GotUuidMsg
                         |> GotApiMsg
                     )
@@ -541,7 +544,7 @@ performEffect model effect =
             \config ->
                 let
                     time =
-                        if config.category == Toast.Error then
+                        if config.category == Effect.ToastError then
                             5000
 
                         else
@@ -697,7 +700,7 @@ view model =
                                 [ class "toast"
                                 , role <|
                                     case toast.config.category of
-                                        Toast.Error ->
+                                        Effect.ToastError ->
                                             "alert"
 
                                         _ ->
@@ -707,16 +710,16 @@ view model =
                                 ]
                                 [ div [ class "toast-content" ]
                                     [ case toast.config.category of
-                                        Toast.Success ->
+                                        Effect.ToastSuccess ->
                                             successIcon []
 
-                                        Toast.Error ->
+                                        Effect.ToastError ->
                                             errorIcon []
 
-                                        Toast.Info ->
+                                        Effect.ToastInfo ->
                                             infoIcon []
 
-                                        Toast.Warning ->
+                                        Effect.ToastWarning ->
                                             warningCircleIcon []
                                     , section []
                                         [ h2 [] [ text toast.config.title ]
