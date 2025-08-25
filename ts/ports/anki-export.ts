@@ -14,12 +14,14 @@ type AnkiExportArg = {
   deck: {
     id: number;
     name: string;
-    models: {
-      [_: number]: AnkiModel;
-    };
-    notes: {
-      [_: number]: string[][];
-    };
+    models: Record<number, AnkiModel>;
+    notes: Record<
+      number,
+      {
+        fields: string[];
+        tags: string[];
+      }[]
+    >;
     files: [string, string][];
   };
   fileName: string;
@@ -53,7 +55,11 @@ TaskPort.register("ankiExport", async (config: AnkiExportArg) => {
 
   for (const [key, notes] of Object.entries(config.deck.notes)) {
     for (const note of notes) {
-      deck.addNote(models.get(key)!.note(note));
+      deck.addNote(
+        models
+          .get(key)!
+          .note(note.fields, note.tags.length > 0 ? note.tags : null),
+      );
     }
   }
 

@@ -46,12 +46,18 @@ type ModelRequiredFields
     | Any Int (List Int)
 
 
+type alias Note =
+    { fields : List String
+    , tags : List String
+    }
+
+
 type Deck
     = Deck
         { id : Int
         , name : String
         , models : Dict Int Model
-        , notes : Dict Int (List (List String))
+        , notes : Dict Int (List Note)
         , files : List ( String, String )
         }
 
@@ -75,7 +81,7 @@ deck id name =
 -- TRANSFORMERS
 
 
-addNotes : List (List String) -> Model -> Deck -> Deck
+addNotes : List Note -> Model -> Deck -> Deck
 addNotes notes model (Deck targetDeck) =
     let
         existingNotes =
@@ -126,7 +132,7 @@ deckEncoder (Deck { id, name, models, notes, files }) =
                 List.map
                     (\( modelId, modelNotes ) ->
                         ( String.fromInt modelId
-                        , Encode.list (Encode.list Encode.string) modelNotes
+                        , Encode.list noteEncoder modelNotes
                         )
                     )
                     (Dict.toList notes)
@@ -141,6 +147,14 @@ deckEncoder (Deck { id, name, models, notes, files }) =
                 )
                 files
           )
+        ]
+
+
+noteEncoder : Note -> Encode.Value
+noteEncoder { fields, tags } =
+    Encode.object
+        [ ( "fields", Encode.list Encode.string fields )
+        , ( "tags", Encode.list Encode.string tags )
         ]
 
 

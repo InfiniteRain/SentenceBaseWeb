@@ -305,12 +305,15 @@ update msg ({ exportForm } as model) =
                             |> Anki.addNotes
                                 (List.map
                                     (\{ fileName, sentence, definition } ->
-                                        [ sentence.sentence
-                                        , ""
-                                        , sentence.word
-                                        , usagesHtml definition
-                                        , "[sound:" ++ fileName ++ "]"
-                                        ]
+                                        { fields =
+                                            [ sentence.sentence
+                                            , ""
+                                            , sentence.word
+                                            , usagesHtml definition
+                                            , "[sound:" ++ fileName ++ "]"
+                                            ]
+                                        , tags = sentence.tags
+                                        }
                                     )
                                     sentenceData
                                 )
