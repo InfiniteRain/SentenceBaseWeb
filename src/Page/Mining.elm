@@ -1340,12 +1340,15 @@ view model =
                         , "h-full"
                         ]
                   ]
-                , case model.tab of
-                    TabMining ->
-                        [ onClick BodyClicked ]
+                , if
+                    model.tab
+                        == TabMining
+                        && not model.mining.tagsForm.isOpen
+                  then
+                    [ onClick BodyClicked ]
 
-                    _ ->
-                        []
+                  else
+                    []
                 ]
             )
             [ div [ classes [ "tabs", "basis-md" ] ]
