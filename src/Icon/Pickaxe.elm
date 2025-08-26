@@ -1,4 +1,4 @@
-module Icon.Pickaxe exposing (..)
+module Icon.Pickaxe exposing (pickaxeIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)
@@ -21,4 +21,3 @@ pickaxeIcon attrs =
             ]
             []
         ]
-

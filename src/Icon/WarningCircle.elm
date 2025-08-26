@@ -1,4 +1,4 @@
-module Icon.WarningCircle exposing (..)
+module Icon.WarningCircle exposing (warningCircleIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)

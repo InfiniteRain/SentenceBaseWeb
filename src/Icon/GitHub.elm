@@ -1,4 +1,4 @@
-module Icon.GitHub exposing (..)
+module Icon.GitHub exposing (gitHubIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)
@@ -20,4 +20,3 @@ gitHubIcon attrs =
             ]
             []
         ]
-

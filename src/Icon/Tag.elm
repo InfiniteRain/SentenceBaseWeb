@@ -1,4 +1,4 @@
-module Icon.Tag exposing (..)
+module Icon.Tag exposing (tagIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)
@@ -23,4 +23,3 @@ tagIcon attrs =
             ]
             []
         ]
-

@@ -45,12 +45,11 @@ fromGridData maybeConstructor =
         >> Maybe.andThen List.head
         >> Maybe.andThen .rowData
         >> Maybe.withDefault []
-        >> List.map
+        >> List.filterMap
             (.values
                 >> Maybe.withDefault []
                 >> maybeConstructor
             )
-        >> List.filterMap identity
 
 
 fromGridDataMatrix :

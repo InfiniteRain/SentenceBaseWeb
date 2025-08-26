@@ -1,4 +1,4 @@
-module Icon.Menu exposing (..)
+module Icon.Menu exposing (menuIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)

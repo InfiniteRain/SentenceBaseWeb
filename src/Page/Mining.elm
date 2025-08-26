@@ -1,4 +1,26 @@
-module Page.Mining exposing (Model, Msg(..), init, subscriptions, update, view)
+module Page.Mining exposing
+    ( AddState(..)
+    , ConfirmState(..)
+    , DefinitionState(..)
+    , DeleteForm
+    , DeleteState(..)
+    , EditForm
+    , EditFormInput(..)
+    , EditFormValidation
+    , EditState(..)
+    , GetState(..)
+    , MiningState
+    , Model
+    , Msg(..)
+    , OverviewState
+    , Tab(..)
+    , TagsForm
+    , TagsFormInput(..)
+    , init
+    , subscriptions
+    , update
+    , view
+    )
 
 import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Exchange.Sheets as Sheets
@@ -33,7 +55,7 @@ import Basecoat
         , role
         , tabIndex
         )
-import Effect exposing (Effect(..))
+import Effect exposing (Effect)
 import Html
     exposing
         ( Attribute
@@ -87,7 +109,6 @@ import Session exposing (Session)
 import Set exposing (Set)
 import Task as PlatformTask
 import Time
-import Toast
 
 
 
@@ -533,8 +554,7 @@ update msg ({ mining, overview } as model) =
             ( { model | mining = { mining | addState = AddIdle } }
             , Cmd.none
             , Effect.toast
-                { category = Toast.Error
-                , title = "Failed to mine sentence"
+                { title = "Failed to mine sentence"
                 , description = Task.errorToMessage err
                 }
             )
@@ -629,8 +649,7 @@ update msg ({ mining, overview } as model) =
               }
             , Cmd.none
             , Effect.toast
-                { category = Toast.Error
-                , title = "Failed to confirm batch"
+                { title = "Failed to confirm batch"
                 , description = Task.errorToMessage err
                 }
             )
@@ -781,9 +800,6 @@ update msg ({ mining, overview } as model) =
             let
                 form =
                     overview.editForm
-
-                { sentence } =
-                    form
             in
             ( { model
                 | overview =
@@ -793,14 +809,19 @@ update msg ({ mining, overview } as model) =
                         , getState =
                             case overview.getState of
                                 GetFinished (Ok sentences) ->
-                                    (GetFinished << Ok) <|
-                                        listTransformAt
-                                            form.index
-                                            { sentence
-                                                | word =
-                                                    String.toLower sentence.word
-                                            }
-                                            sentences
+                                    let
+                                        { sentence } =
+                                            form
+                                    in
+                                    listTransformAt
+                                        form.index
+                                        { sentence
+                                            | word =
+                                                String.toLower sentence.word
+                                        }
+                                        sentences
+                                        |> Ok
+                                        |> GetFinished
 
                                 _ ->
                                     overview.getState
@@ -814,8 +835,7 @@ update msg ({ mining, overview } as model) =
             ( { model | overview = { overview | editState = EditIdle } }
             , Cmd.none
             , Effect.toast
-                { category = Toast.Error
-                , title = "Failed to edit sentence"
+                { title = "Failed to edit sentence"
                 , description = Task.errorToMessage err
                 }
             )
@@ -920,8 +940,7 @@ update msg ({ mining, overview } as model) =
             ( { model | overview = { overview | deleteState = DeleteIdle } }
             , Cmd.none
             , Effect.toast
-                { category = Toast.Error
-                , title = "Failed to delete sentence"
+                { title = "Failed to delete sentence"
                 , description = Task.errorToMessage err
                 }
             )
@@ -1644,9 +1663,7 @@ tagsFieldView { tags, newTagInput, onNewTagInputChange, onRemoved, onAdded } =
                         , type_ "button"
                         , disabled <|
                             String.isEmpty newTagInput
-                                || List.any
-                                    ((==) (String.trim newTagInput))
-                                    tags
+                                || List.member (String.trim newTagInput) tags
                         , onClick <| onAdded newTagInput
                         ]
                         [ plusIcon [] ]

@@ -1,4 +1,4 @@
-module Icon.WarningTriangle exposing (..)
+module Icon.WarningTriangle exposing (warningTriangleIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)

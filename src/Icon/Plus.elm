@@ -1,4 +1,4 @@
-module Icon.Plus exposing (..)
+module Icon.Plus exposing (plusIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)
@@ -26,4 +26,3 @@ plusIcon attrs =
             []
         , Svg.node "path" [ attribute "d" "M12 5v14" ] []
         ]
-

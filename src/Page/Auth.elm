@@ -5,6 +5,7 @@ import Api.Google as Google
         ( InitializeFailure(..)
         , InitializeUpdate(..)
         )
+import Api.Google.Exchange.Task as Task
 import Effect exposing (Effect)
 import Html exposing (Html, br, button, div, text)
 import Html.Events exposing (onClick)
@@ -76,9 +77,6 @@ update msg ({ session } as model) =
 initializeUpdateToStatusText : Google.InitializeUpdate -> String
 initializeUpdateToStatusText initializeUpdate =
     case initializeUpdate of
-        InitializingApi ->
-            "Initializing Google API"
-
         AuthenticatingApi ->
             "Authenticating Google API"
 
@@ -103,25 +101,33 @@ initializeUpdateToStatusText initializeUpdate =
         Done ->
             "Done"
 
-        Failed err ->
-            case err of
-                ApiAuthentication _ ->
-                    "Failed to authenticate Google API"
+        Failed failure ->
+            case failure of
+                ApiAuthentication err ->
+                    "Failed to authenticate Google API: "
+                        ++ Task.taskPortErrorToMessage err
 
-                AppFolderLocation _ ->
-                    "Failed to locate the application folder"
+                AppFolderLocation err ->
+                    "Failed to locate the application folder: "
+                        ++ Task.errorToMessage err
 
-                AppFolderCreation _ ->
+                AppFolderCreation err ->
                     "Failed to create the application folder"
+                        ++ Task.errorToMessage err
 
-                MainSheetLocation _ ->
+                MainSheetLocation err ->
                     "Failed to locate main spreadsheet"
+                        ++ Task.errorToMessage err
 
-                MainSheetCreation _ ->
+                MainSheetCreation err ->
                     "Failed to create main spreadsheet"
+                        ++ Task.errorToMessage err
 
-                MainSheetMigration migrationId _ ->
-                    "Failure during migration " ++ migrationId
+                MainSheetMigration migrationId err ->
+                    "Failure during migration "
+                        ++ migrationId
+                        ++ ": "
+                        ++ Task.errorToMessage err
 
 
 

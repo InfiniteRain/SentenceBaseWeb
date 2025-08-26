@@ -15,6 +15,7 @@
     "@types/google.accounts": "^0.0.15",
     "@types/jszip": "^3.4.0",
     "@types/sql.js": "^1.4.9",
+    "elm-review": "^2.13.4",
     "typescript": "~5.7.2",
     "vite": "^6.3.0",
     "vite-plugin-elm": "^3.1.0-2",

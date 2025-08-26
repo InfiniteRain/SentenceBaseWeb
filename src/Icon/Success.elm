@@ -1,4 +1,4 @@
-module Icon.Success exposing (..)
+module Icon.Success exposing (successIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)
@@ -29,4 +29,3 @@ successIcon attrs =
             []
         , Svg.node "path" [ attribute "d" "m9 12 2 2 4-4" ] []
         ]
-

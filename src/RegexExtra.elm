@@ -86,7 +86,7 @@ punctuation =
     , "s"
     ]
         |> List.map (\punct -> "\\" ++ punct)
-        |> String.join ""
+        |> String.concat
 
 
 p : String

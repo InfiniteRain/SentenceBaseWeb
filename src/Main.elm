@@ -1,10 +1,19 @@
-module Main exposing (..)
+module Main exposing
+    ( ApiModel
+    , ApiMsg(..)
+    , InitialSeeds
+    , Model
+    , Msg(..)
+    , PageModel(..)
+    , PageMsg(..)
+    , Toast
+    , main
+    )
 
-import Api.Google as Google exposing (Msg(..))
-import Api.Google.Constants exposing (SubSheet(..))
+import Api.Google as Google
 import Api.OutMsg as OutMsg exposing (OutMsg)
 import Api.Uuid as Uuid
-import Api.Wiktionary as Wiktionary exposing (Msg(..))
+import Api.Wiktionary as Wiktionary
 import Basecoat
     exposing
         ( ariaAtomic
@@ -53,17 +62,14 @@ import Html.Attributes
 import Html.Events exposing (onClick)
 import Icon.Error exposing (errorIcon)
 import Icon.GitHub exposing (gitHubIcon)
-import Icon.Info exposing (infoIcon)
 import Icon.Menu exposing (menuIcon)
 import Icon.Pickaxe exposing (pickaxeIcon)
-import Icon.Success exposing (successIcon)
-import Icon.WarningCircle exposing (warningCircleIcon)
-import Page.Auth as Auth exposing (Msg(..))
+import Page.Auth as Auth
 import Page.Batches as Batches
-import Page.Mining as Mining exposing (Msg(..))
+import Page.Mining as Mining
 import Port.Timeout as Timeout
 import Random
-import Route exposing (Route(..), standardizeFragment)
+import Route exposing (Route, standardizeFragment)
 import Session exposing (Session)
 import Task
 import Time
@@ -539,14 +545,6 @@ performEffect model effect =
                     model
         , onToast =
             \config ->
-                let
-                    time =
-                        if config.category == Toast.Error then
-                            5000
-
-                        else
-                            3000
-                in
                 ( { model
                     | nextToastId = model.nextToastId + 1
                     , toasts =
@@ -558,9 +556,9 @@ performEffect model effect =
                                ]
                   }
                 , Cmd.batch
-                    [ Timeout.set model.nextToastId time
+                    [ Timeout.set model.nextToastId toastTimeoutMs
                         |> Task.perform Timeout
-                    , Timeout.set model.nextToastId (time + 500)
+                    , Timeout.set model.nextToastId (toastTimeoutMs + 500)
                         |> Task.perform Timeout
                     ]
                 )
@@ -695,29 +693,12 @@ view model =
                         (\toast ->
                             div
                                 [ class "toast"
-                                , role <|
-                                    case toast.config.category of
-                                        Toast.Error ->
-                                            "alert"
-
-                                        _ ->
-                                            "status"
+                                , role "alert"
                                 , ariaAtomic True
                                 , ariaHidden toast.hidden
                                 ]
                                 [ div [ class "toast-content" ]
-                                    [ case toast.config.category of
-                                        Toast.Success ->
-                                            successIcon []
-
-                                        Toast.Error ->
-                                            errorIcon []
-
-                                        Toast.Info ->
-                                            infoIcon []
-
-                                        Toast.Warning ->
-                                            warningCircleIcon []
+                                    [ errorIcon []
                                     , section []
                                         [ h2 [] [ text toast.config.title ]
                                         , p [] [ text toast.config.description ]
@@ -935,3 +916,12 @@ main =
         , onUrlChange = UrlChanged
         , onUrlRequest = LinkClicked
         }
+
+
+
+-- CONSTANTS
+
+
+toastTimeoutMs : Int
+toastTimeoutMs =
+    5000

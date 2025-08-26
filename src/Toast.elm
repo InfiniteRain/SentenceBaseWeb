@@ -1,17 +1,9 @@
-module Toast exposing (Category(..), Config)
+module Toast exposing (Config)
 
 -- TYPES
 
 
 type alias Config =
-    { category : Category
-    , title : String
+    { title : String
     , description : String
     }
-
-
-type Category
-    = Success
-    | Error
-    | Info
-    | Warning

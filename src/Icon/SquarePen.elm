@@ -1,4 +1,4 @@
-module Icon.SquarePen exposing (..)
+module Icon.SquarePen exposing (squarePenIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)
@@ -31,4 +31,3 @@ squarePenIcon attrs =
             ]
             []
         ]
-

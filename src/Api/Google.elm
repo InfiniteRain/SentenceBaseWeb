@@ -4,6 +4,7 @@ module Api.Google exposing
     , InitializeUpdate(..)
     , Model
     , Msg(..)
+    , State
     , init
     , subscriptions
     , update
@@ -13,7 +14,7 @@ import Api.Google.Exchange.Drive as Drive
 import Api.Google.Exchange.SheetsCmd as DriveCmd exposing (SheetsCmd)
 import Api.Google.Exchange.Task as Task
 import Api.Google.Migration as Migration
-import Api.OutMsg as OutMsg exposing (OutMsg(..))
+import Api.OutMsg as OutMsg exposing (OutMsg)
 import Json.Decode as Decode
 import Json.Encode as Encode
 import Task as PlatformTask
@@ -58,8 +59,7 @@ init _ =
 
 
 type Msg rootMsg
-    = GotInitializedResult (TaskPort.Result ())
-    | GotAuthenticationResult (TaskPort.Result String)
+    = GotAuthenticationResult (TaskPort.Result String)
     | SentAction (Action rootMsg)
     | GotActionResponse rootMsg
     | GotFindAppFolderResponse (Result Task.Error Drive.ResponseFileList)
@@ -108,7 +108,7 @@ update msg model =
                     ( model
                     , Drive.createAppFolderRequest
                         |> Task.driveAttempt GotCreateAppFolderResponse
-                    , maybeSendInitializationUpdate model CreatingMainSheet
+                    , maybeSendInitializationUpdate model CreatingAppFolder
                     )
 
         ( SettingUpAppFolder, GotFindAppFolderResponse (Err err) ) ->
@@ -244,7 +244,7 @@ update msg model =
                 [] ->
                     ( { model | state = Ready }, Cmd.none, OutMsg.none )
 
-        ( _, _ ) ->
+        _ ->
             ( model, Cmd.none, OutMsg.none )
 
 
@@ -318,8 +318,7 @@ type Action msg
 
 
 type InitializeUpdate
-    = InitializingApi
-    | AuthenticatingApi
+    = AuthenticatingApi
     | LocatingAppFolder
     | CreatingAppFolder
     | LocatingMainSheet

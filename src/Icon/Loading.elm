@@ -1,4 +1,4 @@
-module Icon.Loading exposing (..)
+module Icon.Loading exposing (loadingIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)
@@ -30,4 +30,3 @@ loadingIcon attrs =
         , Svg.node "path" [ attribute "d" "M2 12h4" ] []
         , Svg.node "path" [ attribute "d" "m4.9 4.9 2.9 2.9" ] []
         ]
-

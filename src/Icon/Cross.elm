@@ -1,4 +1,4 @@
-module Icon.Cross exposing (..)
+module Icon.Cross exposing (crossIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)
@@ -26,4 +26,3 @@ crossIcon attrs =
             []
         , Svg.node "path" [ attribute "d" "m6 6 12 12" ] []
         ]
-

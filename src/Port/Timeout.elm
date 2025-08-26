@@ -1,4 +1,4 @@
-module Port.Timeout exposing (..)
+module Port.Timeout exposing (set)
 
 import Json.Decode as Decode
 import Json.Encode as Encode

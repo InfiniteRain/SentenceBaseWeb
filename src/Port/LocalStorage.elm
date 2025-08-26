@@ -1,6 +1,6 @@
-module Port.LocalStorage exposing (..)
+module Port.LocalStorage exposing (get, remove, set)
 
-import Json.Decode as Decode exposing (Decoder, Error(..))
+import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
 import Platform exposing (Task)
 import Task
@@ -34,14 +34,14 @@ get decoder =
         , valueDecoder = decoder
         , argsEncoder = Encode.string
         }
-        >> Task.onError
+        >> Task.mapError
             (\err ->
                 case err of
                     TaskPort.InteropError (CannotDecodeValue error _) ->
-                        Task.fail error
+                        error
 
                     _ ->
-                        Task.fail <| Decode.Failure "" (Encode.int 0)
+                        Decode.Failure "" (Encode.int 0)
             )
 
 

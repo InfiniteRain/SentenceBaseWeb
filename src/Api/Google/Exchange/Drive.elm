@@ -1,5 +1,6 @@
 module Api.Google.Exchange.Drive exposing
-    ( ResponseFileCreate
+    ( ResponseFile
+    , ResponseFileCreate
     , ResponseFileList
     , createAppFolderRequest
     , createMainSheetRequest

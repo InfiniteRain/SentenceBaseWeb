@@ -1,4 +1,17 @@
-module Page.Batches exposing (Model, Msg(..), init, subscriptions, update, view)
+module Page.Batches exposing
+    ( ExportForm
+    , ExportFormInput(..)
+    , ExportFormValidation
+    , ExportState(..)
+    , GetState(..)
+    , Model
+    , Msg(..)
+    , SpeechConfig
+    , init
+    , subscriptions
+    , update
+    , view
+    )
 
 import Api.Google.Constants as Constants exposing (SubSheet(..))
 import Api.Google.Exchange.Sheets as Sheets
@@ -8,7 +21,7 @@ import Api.Google.Exchange.Sheets as Sheets
         , RequestExtendedValue(..)
         , requestRow
         )
-import Api.Google.Exchange.Task as Task exposing (taskPortErrorToMessage)
+import Api.Google.Exchange.Task as Task
 import Api.Google.ListConstructor
     exposing
         ( cellNumberValue
@@ -52,9 +65,8 @@ import Regex
 import RegexExtra
 import Session exposing (Session)
 import Task as PlatformTask
-import TaskPort exposing (Error(..))
+import TaskPort
 import Time exposing (Month(..))
-import Toast
 import VitePluginHelper
 
 
@@ -97,7 +109,7 @@ type alias ExportFormValidation =
 type ExportState
     = ExportIdle
     | ExportLoading
-    | ExportFinished (TaskPort.Result ())
+    | ExportFinished
 
 
 type alias SpeechConfig =
@@ -326,7 +338,7 @@ update msg ({ exportForm } as model) =
 
         ExportFetched result ->
             ( { model
-                | exportState = ExportFinished result
+                | exportState = ExportFinished
                 , exportForm =
                     case result of
                         Err _ ->
@@ -339,9 +351,8 @@ update msg ({ exportForm } as model) =
             , case result of
                 Err err ->
                     Effect.toast
-                        { category = Toast.Error
-                        , title = "Failed to export batch"
-                        , description = taskPortErrorToMessage err
+                        { title = "Failed to export batch"
+                        , description = Task.taskPortErrorToMessage err
                         }
 
                 _ ->
@@ -903,7 +914,7 @@ usagesHtml result =
         Ok (Usages usages) ->
             usages
                 |> List.indexedMap definitionsHtml
-                |> String.join ""
+                |> String.concat
 
         Err _ ->
             ""
@@ -915,7 +926,7 @@ definitionsHtml index (Definitions definitions) =
         ++ String.fromInt (index + 1)
         ++ "</div><ul>"
         ++ (List.map definitionHtml definitions
-                |> String.join ""
+                |> String.concat
            )
         ++ "</ul>"
 
@@ -925,10 +936,10 @@ definitionHtml definition =
     "<li>"
         ++ (Regex.split RegexExtra.newLines definition.text
                 |> List.map (\line -> "<div>" ++ String.trim line ++ "</div>")
-                |> String.join ""
+                |> String.concat
            )
         ++ (List.map formUsagesHtml definition.formUsages
-                |> String.join ""
+                |> String.concat
            )
         ++ "</li>"
 
@@ -959,16 +970,16 @@ formUsagesHtml { word, usages } =
                                                         ++ String.trim line
                                                         ++ "</div>"
                                                 )
-                                            |> String.join ""
+                                            |> String.concat
                                        )
                                     ++ "</li>"
                             )
                             definitions
-                            |> String.join ""
+                            |> String.concat
                        )
                     ++ "</ul></div>"
             )
-        |> String.join ""
+        |> String.concat
 
 
 

@@ -1,5 +1,8 @@
 module Api.Google.Migration exposing
-    ( Model
+    ( Kind(..)
+    , Migration
+    , MigrationModel(..)
+    , Model
     , Msg
     , OutMsg(..)
     , init
@@ -16,7 +19,7 @@ import Api.Google.Exchange.Sheets as Sheets
 import Api.Google.Exchange.SheetsCmd as SheetsCmd
 import Api.Google.Exchange.Task as Task
 import Api.Google.Migration.Config exposing (Config)
-import Api.Google.Migration.Effect as Effect exposing (Effect, EffectInner(..))
+import Api.Google.Migration.Effect as Effect exposing (Effect)
 import Api.Google.Migration.M00000000SetupMigrations as SetupMigrations
 import Api.Google.Migration.M15052025SentencesAndWords as SentencesAndWords
 import Set
@@ -37,14 +40,16 @@ type MigrationModel
 
 updateMigration : MigrationMsg -> MigrationModel -> MigrationUpdate
 updateMigration msg model =
-    case ( msg, model ) of
-        ( GotSentencesAndWordsMsg subMsg, SentencesAndWords subModel ) ->
-            updateWith
-                subMsg
-                subModel
-                SentencesAndWords.update
-                GotSentencesAndWordsMsg
-                SentencesAndWords
+    let
+        ( GotSentencesAndWordsMsg subMsg, SentencesAndWords subModel ) =
+            ( msg, model )
+    in
+    updateWith
+        subMsg
+        subModel
+        SentencesAndWords.update
+        GotSentencesAndWordsMsg
+        SentencesAndWords
 
 
 queue : List (String -> Migration)
@@ -193,7 +198,7 @@ update msg model =
                 [] ->
                     ( { model | migrationQueue = [] }, Cmd.none, Done )
 
-        ( _, _ ) ->
+        _ ->
             ( model, Cmd.none, None )
 
 

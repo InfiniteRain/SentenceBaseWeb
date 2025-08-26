@@ -1,18 +1,24 @@
 module Api.Wiktionary exposing
     ( Definition
+    , DefinitionResponse
     , Definitions(..)
     , Example
     , FormUsages
     , Model
     , Msg(..)
+    , ParsedExampleResponse
     , RequestConfig
+    , RequestCtx
+    , RequestState(..)
+    , Response
+    , UsageResponse
     , Usages(..)
     , init
     , subscriptions
     , update
     )
 
-import Api.OutMsg as OutMsg exposing (OutMsg(..))
+import Api.OutMsg as OutMsg exposing (OutMsg)
 import Dict exposing (Dict)
 import Html.Parser as Parser exposing (Node(..))
 import Http
@@ -390,11 +396,6 @@ collectBaseFormWordsFromNode words nodes =
                 aElement =
                     findElement "a" element
 
-                formWord =
-                    aElement
-                        |> Maybe.map nodeToText
-                        |> Maybe.withDefault ""
-
                 endsWithOf =
                     String.trim textStr
                         |> String.endsWith "of"
@@ -410,7 +411,12 @@ collectBaseFormWordsFromNode words nodes =
             in
             collectBaseFormWordsFromNode
                 (if endsWithOf && hasSpecialClass && hasDutchLinkHref then
-                    Set.insert formWord words
+                    Set.insert
+                        (aElement
+                            |> Maybe.map nodeToText
+                            |> Maybe.withDefault ""
+                        )
+                        words
 
                  else
                     words
@@ -435,7 +441,7 @@ hasClass : String -> List Parser.Attribute -> Bool
 hasClass className attrs =
     getAttrStr "class" attrs
         |> Maybe.map extractClasses
-        |> Maybe.map (List.any ((==) className))
+        |> Maybe.map (List.member className)
         |> Maybe.withDefault False
 
 

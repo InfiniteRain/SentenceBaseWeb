@@ -1,11 +1,25 @@
 module Api.Google.Exchange.Sheets exposing
     ( RequestBatchUpdateKind(..)
+    , RequestBooleanCondition
+    , RequestCellData
+    , RequestConditionValue
+    , RequestDataValidationRule
     , RequestDimension(..)
+    , RequestDimensionProperties
+    , RequestDimensionRange
     , RequestExtendedValue(..)
+    , RequestGridProperties
+    , RequestGridRange
+    , RequestProperties
+    , RequestRowData
+    , Response
     , ResponseBatchUpdate
     , ResponseCellData
     , ResponseCellExtendedData(..)
+    , ResponseData
     , ResponseGetSubSheetData
+    , ResponseGridProperties
+    , ResponseProperties
     , ResponseRowData
     , SubSheet
     , addSubSheetRequests
@@ -19,7 +33,7 @@ module Api.Google.Exchange.Sheets exposing
     )
 
 import Api.Google.Exchange.Task as Task
-import Http exposing (Error(..))
+import Http
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
 import Time
@@ -60,7 +74,6 @@ type ResponseCellExtendedData
     | ResponseString String
     | ResponseBool Bool
     | ResponseFormula String
-    | ResponseError String
 
 
 responseCellExtendedDataDecoder : Decoder ResponseCellExtendedData
@@ -70,9 +83,6 @@ responseCellExtendedDataDecoder =
         , Decode.map ResponseString <| Decode.field "stringValue" Decode.string
         , Decode.map ResponseBool <| Decode.field "boolValue" Decode.bool
         , Decode.map ResponseFormula <| Decode.field "stringValue" Decode.string
-        , Decode.map ResponseError <|
-            Decode.field "errorValue" <|
-                Decode.field "message" Decode.string
         ]
 
 
@@ -297,7 +307,6 @@ requestGetByDataFilterEncoder sheetGetByDataFilterRequest =
 type RequestExtendedValue
     = RequestNumber Float
     | RequestString String
-    | RequestBool Bool
     | RequestFormula String
 
 
@@ -310,9 +319,6 @@ requestExtendedValueEncoder value =
 
             RequestString string ->
                 ( "stringValue", Encode.string string )
-
-            RequestBool bool ->
-                ( "boolValue", Encode.bool bool )
 
             RequestFormula formulaString ->
                 ( "formulaValue", Encode.string formulaString )
@@ -344,17 +350,13 @@ requestRowDataEncoder { values } =
 
 
 type RequestDimension
-    = RequestUnspecified
-    | RequestRows
+    = RequestRows
     | RequestColumns
 
 
 requestDimensionEncoder : RequestDimension -> Encode.Value
 requestDimensionEncoder dimension =
     case dimension of
-        RequestUnspecified ->
-            Encode.string "DIMENSION_UNSPECIFIED"
-
         RequestRows ->
             Encode.string "ROWS"
 

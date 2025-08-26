@@ -1,4 +1,4 @@
-module Icon.Info exposing (..)
+module Icon.Info exposing (infoIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)
@@ -30,4 +30,3 @@ infoIcon attrs =
         , Svg.node "path" [ attribute "d" "M12 16v-4" ] []
         , Svg.node "path" [ attribute "d" "M12 8h.01" ] []
         ]
-

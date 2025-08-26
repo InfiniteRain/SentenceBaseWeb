@@ -4,6 +4,7 @@ module Port.Anki exposing
     , ModelField
     , ModelRequiredFields(..)
     , ModelTemplate
+    , Note
     , addFiles
     , addNotes
     , deck
@@ -43,7 +44,6 @@ type alias ModelTemplate =
 
 type ModelRequiredFields
     = All Int (List Int)
-    | Any Int (List Int)
 
 
 type alias Note =
@@ -175,14 +175,6 @@ modelEncoder { id, name, fields, templates, styling, requiredFields } =
                                 identity
                                 [ Encode.int templateIndex
                                 , Encode.string "all"
-                                , Encode.list Encode.int fieldList
-                                ]
-
-                        Any templateIndex fieldList ->
-                            Encode.list
-                                identity
-                                [ Encode.int templateIndex
-                                , Encode.string "any"
                                 , Encode.list Encode.int fieldList
                                 ]
                 )

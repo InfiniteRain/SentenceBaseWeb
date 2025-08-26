@@ -1,4 +1,4 @@
-module Icon.Error exposing (..)
+module Icon.Error exposing (errorIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)
@@ -30,4 +30,3 @@ errorIcon attrs =
         , Svg.node "path" [ attribute "d" "m15 9-6 6" ] []
         , Svg.node "path" [ attribute "d" "m9 9 6 6" ] []
         ]
-

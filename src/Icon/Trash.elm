@@ -1,4 +1,4 @@
-module Icon.Trash exposing (..)
+module Icon.Trash exposing (trashIcon)
 
 import Html exposing (Attribute)
 import Html.Attributes exposing (attribute)
@@ -33,4 +33,3 @@ trashIcon attrs =
             ]
             []
         ]
-

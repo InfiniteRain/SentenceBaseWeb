@@ -58,11 +58,7 @@ standardizeFragment : Url -> Url
 standardizeFragment url =
     { url
         | fragment =
-            Just
-                (extractFragmentSegments url
-                    |> String.join "/"
-                    |> (++) "/"
-                )
+            Just (String.join "/" (extractFragmentSegments url) ++ "/")
     }
 
 
