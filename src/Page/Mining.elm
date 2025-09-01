@@ -380,7 +380,7 @@ update msg ({ mining, overview } as model) =
                         _ ->
                             trimmed
             in
-            if processed == mining.sentence then
+            if processed == mining.sentence || processed == "" then
                 ( model, Cmd.none, Effect.none )
 
             else
