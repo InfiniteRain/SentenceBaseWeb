@@ -10,7 +10,13 @@ TaskPort.register(
 );
 
 TaskPort.register("localStorageGet", async (key: string) => {
-  return JSON.parse(localStorage.getItem(`${localStoragePrefix}${key}`) ?? "");
+  const item = localStorage.getItem(`${localStoragePrefix}${key}`);
+
+  if (item === null) {
+    return null;
+  }
+
+  return JSON.parse(item);
 });
 
 TaskPort.register("localStorageRemove", async (key: string) => {
